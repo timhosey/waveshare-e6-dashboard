@@ -50,3 +50,22 @@ RestartSec=5
 
 [Install]
 WantedBy=default.target
+[Unit]
+Description=E-Ink Dashboard Rotator (Sakura-chan)
+After=network-online.target
+
+[Service]
+Type=simple
+# IMPORTANT: run through bash -lc so we can `source` the venv
+WorkingDirectory=/home/tim/Scripting/e-ink_display
+EnvironmentFile=/home/tim/Scripting/e-ink_display/.env
+Environment=GPIOZERO_PIN_FACTORY=lgpio
+
+# Source the venv exactly like your CLI, then exec python so PID is clean
+ExecStart=/bin/bash -lc 'source /home/tim/Scripting/e-ink_display/.venv/bin/activate && exec python /home/tim/Scripting/e-ink_display/dashboard.py'
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
