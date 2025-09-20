@@ -118,7 +118,7 @@ def pick_sprite_filename(main: Optional[str], temp_val, units: str, override: Op
         return "sakura_cloudy.png"
 
     # Fallback
-    return _SAKURA_MAP.get(main_t, "sakura_sunny.png")
+    return _SAKURA_MAP.get(main_t, "sakura_happy.png")
 
 
 def _wrap_text_to_width(text: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> List[str]:
