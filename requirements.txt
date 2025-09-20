@@ -6,3 +6,4 @@ spidev
 gpiozero
 pigpio
 lgpio
+python-dotenv
