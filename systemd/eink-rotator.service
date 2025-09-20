@@ -1,0 +1,30 @@
+[Unit]
+Description=E-Ink Dashboard Rotator (Sakura-chan)
+After=network-online.target
+
+[Service]
+Type=simple
+# — Change to your repo location —
+WorkingDirectory=/home/tim/Scripting/e-ink_display
+
+# Load environment (for OWM_API_KEY, coords, ROTATE_SECONDS, etc.)
+EnvironmentFile=/home/tim/Scripting/e-ink_display/.env
+
+# GPIO backend hint (works with your Waveshare lib)
+Environment=GPIOZERO_PIN_FACTORY=lgpio
+
+# Use your venv’s python
+ExecStart=/home/tim/Scripting/e-ink_display/.venv/bin/python /home/tim/Scripting/e-ink_display/dashboard.py
+
+# Make sure the service keeps coming back if it crashes
+Restart=always
+RestartSec=5
+
+# Access to SPI/GPIO devices without running as root
+SupplementaryGroups=spi gpio
+
+# A little limit bump just in case
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
