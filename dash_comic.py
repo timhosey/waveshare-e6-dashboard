@@ -12,6 +12,7 @@ import random
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from io import BytesIO
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
@@ -38,7 +39,12 @@ STRIP_DIR = Path("strips")
 STRIP_DIR.mkdir(exist_ok=True)
 WIDTH, HEIGHT = 800, 480
 CACHE_TTL = timedelta(hours=24)  # don't re-download until cached file older than this
-SAKURA_PNG = Path("sakura.png")  # optional mascot (transparent)
+
+# Sakura-chan art (separate PNGs per expression) under ./img/
+SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "happy")  # e.g., happy, worried, sleepy, excited
+SAKURA_DIR = Path("img")
+SAKURA_PNG = SAKURA_DIR / f"sakura_{SAKURA_EMOTE}.png"  # default: img/sakura_happy.png
+
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"  # fallback
 FONT_BIG = ImageFont.truetype(FONT_PATH, 28)
 FONT_SMALL = ImageFont.truetype(FONT_PATH, 18)
@@ -75,20 +81,14 @@ def pick_random_archive():
 
 # === Fetchers ===
 def fetch_with_comics(date_str):
-    """Use the `comics` package to download. Returns PIL.Image or None."""
+    """Use the `comics` package correctly. Returns PIL.Image or None."""
     if comics is None:
         return None
     try:
         logging.info("Trying `comics` package for %s", date_str)
-        ch = comics.search("calvinandhobbes", date="YYYY-MM-DD")
-        # comics.Comics().download returns bytes or saves; we try to fetch URL then download
-        result = ch.get_image_url(COMIC_SLUG, date=date_str)  # may raise
-        if not result:
-            return None
-        url = result
-        r = requests.get(url, headers=HEADERS, timeout=15)
-        r.raise_for_status()
-        return Image.open(BytesIO(r.content)).convert("RGB")
+        ch = comics.search(COMIC_SLUG, date=date_str)  # returns a Comic object
+        content = ch.stream()  # raw bytes of the image
+        return Image.open(BytesIO(content)).convert("RGB")
     except Exception as e:
         logging.warning("comics package fetch failed: %s", e)
         return None
@@ -181,18 +181,20 @@ def compose_dashboard(strip_img: Image.Image, comment: str = None):
     text = comment or "Sakura: What a funny Calvin & Hobbes day! Nyaa~"
     draw.text((bx + 12, by + 12), text, font=FONT_SMALL, fill=(60, 20, 80))
 
-    # Optional Sakura PNG overlay (placed over left of bubble)
+    # Sakura PNG overlay (bottom-right), scaled to a friendly height
     try:
-        if SAKURA_PNG.exists():
-            sak = Image.open(str(SAKURA_PNG)).convert("RGBA")
-            # scale sakura image to bubble height
-            sh_ratio = (bubble_h - 8) / sak.height
-            sak_w = int(sak.width * sh_ratio)
-            sak_h = int(sak.height * sh_ratio)
+        sak_path = SAKURA_PNG if SAKURA_PNG.exists() else (SAKURA_DIR / "sakura_happy.png")
+        if sak_path.exists():
+            sak = Image.open(str(sak_path)).convert("RGBA")
+            target_h = min(180, HEIGHT - 16)  # keep her around 150-180px tall
+            scale = target_h / sak.height
+            sak_w = int(sak.width * scale)
+            sak_h = int(sak.height * scale)
             sak = sak.resize((sak_w, sak_h), Image.LANCZOS)
-            sak_x = bx - sak_w + 36  # overlap a bit into bubble
-            sak_y = HEIGHT - sak_h - 12
-            canvas.paste(sak, (int(sak_x), int(sak_y)), sak)
+            # place her at the bottom-right, overlapping bubble slightly
+            sak_x = WIDTH - sak_w - 8
+            sak_y = HEIGHT - sak_h - 8
+            canvas.paste(sak, (sak_x, sak_y), sak)
     except Exception as e:
         logging.warning("Failed to draw sakura overlay: %s", e)
 
@@ -226,11 +228,10 @@ def main():
         sys.exit(1)
 
     # create a small comment based on date or a canned line (you can extend this)
-    comment = f"Sakura: Here's today's strip — enjoy, tim! ({date_str})"
+    comment = f"Sakura: Here's today's strip — enjoy, Tim! ({date_str})"
     dash_img = compose_dashboard(strip, comment=comment)
     display_on_epd(dash_img)
 
 
 if __name__ == "__main__":
     main()
-
