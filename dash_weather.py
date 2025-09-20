@@ -47,7 +47,7 @@ def display_on_epd(img: Image.Image):
 
 def main():
     logging.info("[dash_weather] fetching weather…")
-    data = get_weather()
+    data = fetch_weather()
     logging.info("[dash_weather] composing dashboard…")
     dash = compose_weather_dashboard(data)
     logging.info("[dash_weather] displaying…")
