@@ -44,15 +44,20 @@ SAKURA_DIR = ROOT / "img" / "sakura"
 FONT_DIR = ROOT / "fonts"
 
 # Bubble defaults (tweak here to affect all dashboards)
-BUBBLE_FILL = (255, 245, 255)      # soft pink-white
+BUBBLE_FILL = None                 # outline-only for e-ink clarity
 BUBBLE_OUTLINE = (230, 200, 230)   # pastel outline
 BUBBLE_TEXT = (60, 20, 80)         # plum text
 BUBBLE_RADIUS = 12
-BUBBLE_OUTLINE_WIDTH = 2
+BUBBLE_OUTLINE_WIDTH = 4           # thicker border
 BUBBLE_PAD_X = 12
 BUBBLE_PAD_Y = 10
 BUBBLE_MIN_W = 180
 MARGIN = 8  # edge margin from canvas sides
+
+# Tail settings (a small triangle from bubble toward Sakura)
+BUBBLE_TAIL = True
+TAIL_W = 14
+TAIL_H = 12
 
 # Load Sakura's voice font
 try:
@@ -156,7 +161,27 @@ def _draw_bubble(draw: ImageDraw.ImageDraw, bx: int, by: int, bw: int, text: str
     line_h, text_h = _measure_text_height(lines, font, draw)
     bh = text_h + 2 * BUBBLE_PAD_Y
 
+    # Main rounded rectangle (outline-only when fill is None)
     draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=radius, fill=fill, outline=outline, width=outline_w)
+
+    # Optional right-side tail pointing toward Sakura (outline only)
+    if BUBBLE_TAIL:
+        side_x = bx + bw  # right edge of bubble
+        side_mid_y = by + bh - max(22, BUBBLE_PAD_Y + 12)
+        tail = [
+            (side_x,            side_mid_y - TAIL_H // 2),
+            (side_x,            side_mid_y + TAIL_H // 2),
+            (side_x + TAIL_W,   side_mid_y),
+        ]
+        # Outline-only polygon; Pillow draws the border when fill=None
+        try:
+            draw.polygon(tail, fill=None, outline=outline)
+        except TypeError:
+            # Older Pillow may not support outline-only polygon; fallback to two lines
+            draw.line([tail[0], tail[2]], fill=outline, width=outline_w)
+            draw.line([tail[1], tail[2]], fill=outline, width=outline_w)
+
+    # Text
     tx, ty = bx + BUBBLE_PAD_X, by + BUBBLE_PAD_Y
     for ln in lines:
         draw.text((tx, ty), ln, font=font, fill=text_col)
