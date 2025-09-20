@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 from PIL import Image, ImageDraw, ImageFont
+from sakura import add_to_canvas as sakura_add
 import time
 import json
 import requests
@@ -274,28 +275,6 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     feels = current.get("feels_like", temp)
     units_sym = "°C" if OWM_UNITS == "metric" else "°F"
 
-    # Choose Sakura outfit based on weather + temperature
-    sak = None
-    sak_w = sak_h = 0
-    sak_x = sak_y = 0
-    try:
-        outfit = pick_sakura_sprite(main, temp, OWM_UNITS)
-        sak_path = SAKURA_DIR / outfit
-        if not sak_path.exists():
-            # fallback to happy default in legacy location if present
-            legacy = Path("img") / "sakura_happy.png"
-            sak_path = legacy if legacy.exists() else sak_path
-        if sak_path.exists():
-            _sak = Image.open(str(sak_path)).convert("RGBA")
-            target_h = min(180, HEIGHT - 16)
-            scale = target_h / _sak.height
-            sak_w = int(_sak.width * scale)
-            sak_h = int(_sak.height * scale)
-            sak = _sak.resize((sak_w, sak_h), Image.LANCZOS)
-            sak_x = WIDTH - sak_w - 8
-            sak_y = HEIGHT - sak_h - 8
-    except Exception as e:
-        logging.warning("Failed to prepare Sakura: %s", e)
 
     left_x = 20
     cur_y = 60
@@ -352,31 +331,19 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
         if isinstance(tmin, (int, float)):
             draw.text((x + 80, y + 80), f"{round(tmin)}{units_sym}", font=FONT_INFO_SM, fill=(90, 90, 110))
 
-    # Sakura bubble with wrap (avoid overlap)
+    # Sakura sprite + wrapped speech bubble via shared module
     comment = sakura_comment(main, temp, desc)
-    pad_x, pad_y = 12, 10
-    max_bubble_width = 420
-    right_limit = (sak_x - 8) if sak else WIDTH - 8
-    bubble_w = min(max_bubble_width, right_limit - 12)
-    bubble_w = max(bubble_w, 180)
-    inner_w = bubble_w - 2 * pad_x
-    lines = wrap_text_to_width(comment, FONT_SAKURA, inner_w, draw)
-    line_h = draw.textbbox((0, 0), "Ay", font=FONT_SAKURA)[3]
-    text_h = line_h * len(lines)
-    bubble_h = text_h + 2 * pad_y
-    bx = max(8, right_limit - bubble_w)
-    by = HEIGHT - bubble_h - 12
-    r = 12
-    draw.rounded_rectangle([bx, by, bx + bubble_w, by + bubble_h], radius=r, fill=(255, 245, 255), outline=(230, 200, 230), width=2)
-    tx2 = bx + pad_x
-    ty2 = by + pad_y
-    for line in lines:
-        draw.text((tx2, ty2), line, font=FONT_SAKURA, fill=(60, 20, 80))
-        ty2 += line_h
-
-    # Paste Sakura last
-    if sak is not None:
-        canvas.paste(sak, (sak_x, sak_y), sak)
+    sakura_add(
+        canvas,
+        text=comment,
+        main=main,
+        temp=temp,
+        units=OWM_UNITS,
+        override=SAKURA_EMOTE,
+        position="bottom-right",
+        target_h=180,
+        bubble_max_w=420,
+    )
 
     return canvas
 
