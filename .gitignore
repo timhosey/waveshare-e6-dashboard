@@ -3,3 +3,4 @@ lib/
 img/
 strips/
 out_preview.png
+.env
