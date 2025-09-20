@@ -11,6 +11,22 @@ from io import BytesIO
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logging.info("[dash_weather] starting up…")
 
+from dotenv import load_dotenv, find_dotenv
+dotenv_path = find_dotenv(usecwd=True)
+load_dotenv(dotenv_path=dotenv_path)
+logging.info("[dash_weather] dotenv loaded from: %s", dotenv_path if dotenv_path else "<none>")
+
+# Read env vars (with defaults)
+OWM_API_KEY = os.getenv("OWM_API_KEY")
+OWM_LAT     = os.getenv("OWM_LAT")
+OWM_LON     = os.getenv("OWM_LON")
+OWM_UNITS   = os.getenv("OWM_UNITS", "metric")
+
+# Optional: surface missing keys early for clarity
+missing = [k for k,v in {"OWM_API_KEY": OWM_API_KEY, "OWM_LAT": OWM_LAT, "OWM_LON": OWM_LON}.items() if not v]
+if missing:
+    logging.warning("[dash_weather] missing env: %s (set them in your .env)", ", ".join(missing))
+
 os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
 
 from dotenv import load_dotenv
@@ -27,6 +43,40 @@ try:
     logging.info("[dash_weather] Waveshare EPD driver loaded")
 except Exception as e:
     logging.warning("[dash_weather] EPD driver unavailable (%s). Will save preview PNG instead.", e)
+
+# Basic constants (define if not already defined elsewhere)
+if 'WIDTH' not in globals():
+    WIDTH, HEIGHT = 800, 480
+if 'CACHE_DIR' not in globals():
+    CACHE_DIR = Path("cache"); CACHE_DIR.mkdir(exist_ok=True)
+if 'WEATHER_CACHE' not in globals():
+    WEATHER_CACHE = CACHE_DIR / "weather.json"
+if 'CACHE_TTL' not in globals():
+    CACHE_TTL = timedelta(minutes=30)
+if 'HEADERS' not in globals():
+    HEADERS = {"User-Agent": "SakuraWeather/1.0 (personal use)"}
+
+# Fonts
+if 'FONT_DIR' not in globals():
+    FONT_DIR = Path("fonts")
+try:
+    FONT_INFO    = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 32)
+    FONT_INFO_SM = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 22)
+    FONT_SAKURA  = ImageFont.truetype(str(FONT_DIR / "Fredoka-Regular.ttf"), 20)
+except Exception as e:
+    logging.warning("[dash_weather] font load failed (%s); falling back to default PIL font", e)
+    FONT_INFO = FONT_INFO_SM = FONT_SAKURA = ImageFont.load_default()
+logging.info("[dash_weather] fonts loaded: MPLUSRounded1c + Fredoka")
+
+# Sakura art paths
+if 'SAKURA_EMOTE' not in globals():
+    SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "happy")
+if 'SAKURA_DIR' not in globals():
+    SAKURA_DIR = Path("img")
+if 'SAKURA_PNG' not in globals():
+    SAKURA_PNG = SAKURA_DIR / f"sakura_{SAKURA_EMOTE}.png"
+if 'WEATHER_ICON_DIR' not in globals():
+    WEATHER_ICON_DIR = Path("img/weather")
 
 # ... [assume other imports and code here]
 
