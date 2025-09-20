@@ -159,6 +159,25 @@ def get_strip_for_date(date_str):
     return None
 
 
+def wrap_text_to_width(text, font, max_width, draw):
+    """Wrap text into lines that fit within max_width using the provided draw+font."""
+    words = text.split()
+    if not words:
+        return [""]
+    lines = []
+    cur = words[0]
+    for w in words[1:]:
+        test = cur + " " + w
+        bbox = draw.textbbox((0, 0), test, font=font)
+        if bbox[2] - bbox[0] <= max_width:
+            cur = test
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
+
 # === Compose dashboard image ===
 def compose_dashboard(strip_img: Image.Image, comment: str = None):
     """Return an 800x480 RGB image with strip and Sakura bubble/mascot."""
@@ -175,32 +194,56 @@ def compose_dashboard(strip_img: Image.Image, comment: str = None):
 
     draw = ImageDraw.Draw(canvas)
 
-    # Sakura bubble bottom-right
-    bubble_w, bubble_h = 360, 70
-    bx = WIDTH - bubble_w - 12
-    by = HEIGHT - bubble_h - 12
-    # rounded rectangle background
-    r = 12
-    draw.rounded_rectangle([bx, by, bx + bubble_w, by + bubble_h], radius=r, fill=(255, 245, 255), outline=(230, 200, 230), width=2)
-    text = comment or "Sakura: What a funny Calvin & Hobbes day! Nyaa~"
-    draw.text((bx + 12, by + 12), text, font=FONT_SAKURA, fill=(60, 20, 80))
-
-    # Sakura PNG overlay (bottom-right), scaled to a friendly height
+    # Precompute Sakura placement (bottom-right), but paste after bubble
+    sak = None
+    sak_w = sak_h = 0
+    sak_x = sak_y = 0
     try:
         sak_path = SAKURA_PNG if SAKURA_PNG.exists() else (SAKURA_DIR / "sakura_happy.png")
         if sak_path.exists():
-            sak = Image.open(str(sak_path)).convert("RGBA")
-            target_h = min(180, HEIGHT - 16)  # keep her around 150-180px tall
-            scale = target_h / sak.height
-            sak_w = int(sak.width * scale)
-            sak_h = int(sak.height * scale)
-            sak = sak.resize((sak_w, sak_h), Image.LANCZOS)
-            # place her at the bottom-right, overlapping bubble slightly
+            _sak = Image.open(str(sak_path)).convert("RGBA")
+            target_h = min(180, HEIGHT - 16)
+            scale = target_h / _sak.height
+            sak_w = int(_sak.width * scale)
+            sak_h = int(_sak.height * scale)
+            sak = _sak.resize((sak_w, sak_h), Image.LANCZOS)
             sak_x = WIDTH - sak_w - 8
             sak_y = HEIGHT - sak_h - 8
-            canvas.paste(sak, (sak_x, sak_y), sak)
     except Exception as e:
-        logging.warning("Failed to draw sakura overlay: %s", e)
+        logging.warning("Failed to prepare sakura overlay: %s", e)
+
+    text = comment or "Sakura: What a funny Calvin & Hobbes day! Nyaa~"
+
+    # Speech bubble with word-wrapping, anchored bottom-right but avoiding Sakura
+    pad_x, pad_y = 12, 10
+    max_bubble_width = 360
+    # If Sakura is present, limit bubble to not go underneath her
+    right_limit = sak_x - 8 if sak else WIDTH - 8
+    # Start with desired width, clamp so bubble right edge stays left of Sakura (if present)
+    bubble_w = min(max_bubble_width, right_limit - 12)
+    if bubble_w < 160:
+        bubble_w = 160  # don't get too skinny
+    # Wrap text to bubble inner width
+    inner_w = bubble_w - 2 * pad_x
+    lines = wrap_text_to_width(text, FONT_SAKURA, inner_w, draw)
+    # Estimate line height from font metrics
+    line_h = draw.textbbox((0, 0), "Ay", font=FONT_SAKURA)[3]
+    text_h = line_h * len(lines)
+    bubble_h = text_h + 2 * pad_y
+    bx = max(8, right_limit - bubble_w)
+    by = HEIGHT - bubble_h - 12
+    r = 12
+    draw.rounded_rectangle([bx, by, bx + bubble_w, by + bubble_h], radius=r, fill=(255, 245, 255), outline=(230, 200, 230), width=2)
+    # Draw wrapped lines
+    tx = bx + pad_x
+    ty = by + pad_y
+    for line in lines:
+        draw.text((tx, ty), line, font=FONT_SAKURA, fill=(60, 20, 80))
+        ty += line_h
+
+    # Finally paste Sakura on top, bottom-right
+    if sak is not None:
+        canvas.paste(sak, (sak_x, sak_y), sak)
 
     return canvas
 
