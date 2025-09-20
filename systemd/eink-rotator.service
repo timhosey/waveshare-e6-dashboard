@@ -1,33 +1,52 @@
+import os
+import sys
+import subprocess
+from pathlib import Path
+import logging
+
+log = logging.getLogger(__name__)
+
+# Always use *this* interpreter for child scripts to keep the same venv
+PYTHON_BIN = sys.executable
+
+# Existing code that logs rotation and interval
+# Example existing code:
+# log.info("Rotate interval: %d seconds", rotate_seconds)
+
+log.info("Child Python: %s", PYTHON_BIN)
+
+def run_script(path: Path):
+    env = os.environ.copy()
+    # Prepend venv bin to PATH so any console scripts resolve inside the venv
+    venv_bin = str(Path(PYTHON_BIN).parent)
+    env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+    cmd = [PYTHON_BIN, str(path)]
+    subprocess.Popen(
+        cmd,
+        env=env,
+    )
 [Unit]
 Description=E-Ink Dashboard Rotator (Sakura-chan)
 After=network-online.target
 
 [Service]
 Type=simple
-# — Change to your repo location —
 WorkingDirectory=/home/tim/Scripting/e-ink_display
 
-# Load environment (for OWM_API_KEY, coords, ROTATE_SECONDS, etc.)
+# Load env vars (OWM_*, ROTATE_SECONDS, etc.)
 EnvironmentFile=/home/tim/Scripting/e-ink_display/.env
-
-# GPIO backend hint (works with your Waveshare lib)
+# Hint for Waveshare lib
 Environment=GPIOZERO_PIN_FACTORY=lgpio
-# Force child dashboards to use the same venv interpreter via env (dashboard.py respects PYTHON_BIN)
-Environment=PYTHON_BIN=/home/tim/Scripting/e-ink_display/.venv/bin/python
-# Prefer venv bin on PATH for any console scripts
+# Ensure venv is preferred for PATH and child scripts
 Environment=PATH=/home/tim/Scripting/e-ink_display/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin
+# Pass venv python to rotator (if your code reads PYTHON_BIN)
+Environment=PYTHON_BIN=/home/tim/Scripting/e-ink_display/.venv/bin/python
 
-# Use your venv’s python
+# Run the rotator with the venv interpreter
 ExecStart=/home/tim/Scripting/e-ink_display/.venv/bin/python /home/tim/Scripting/e-ink_display/dashboard.py
 
-# Make sure the service keeps coming back if it crashes
 Restart=always
 RestartSec=5
-
-
-
-# A little limit bump just in case
-NoNewPrivileges=true
 
 [Install]
 WantedBy=default.target
