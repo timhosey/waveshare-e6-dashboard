@@ -16,6 +16,7 @@ from io import BytesIO
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
+from sakura import add_to_canvas as sakura_add
 
 # Attempt to import comics wrapper; if not available we'll fallback to scraping
 try:
@@ -40,18 +41,13 @@ STRIP_DIR.mkdir(exist_ok=True)
 WIDTH, HEIGHT = 800, 480
 CACHE_TTL = timedelta(hours=24)  # don't re-download until cached file older than this
 
-# Sakura-chan art (separate PNGs per expression) under ./img/
-SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "happy")  # e.g., happy, worried, sleepy, excited
-SAKURA_DIR = Path("img")
-SAKURA_PNG = SAKURA_DIR / f"sakura_{SAKURA_EMOTE}.png"  # default: img/sakura_happy.png
+# Sakura override (set SAKURA_EMOTE to force a specific outfit; otherwise handled in sakura.py)
+SAKURA_OVERRIDE = os.environ.get("SAKURA_EMOTE", "auto")
 
 FONT_DIR = Path("fonts")
 
 # Dashboard/info text font
 FONT_INFO = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 28)
-
-# Sakura’s speech bubble font
-FONT_SAKURA = ImageFont.truetype(str(FONT_DIR / "Fredoka-Regular.ttf"), 20)
 
 HEADERS = {
     "User-Agent": "SakuraDash/1.0 (+https://example.local) - personal use"
@@ -194,56 +190,19 @@ def compose_dashboard(strip_img: Image.Image, comment: str = None):
 
     draw = ImageDraw.Draw(canvas)
 
-    # Precompute Sakura placement (bottom-right), but paste after bubble
-    sak = None
-    sak_w = sak_h = 0
-    sak_x = sak_y = 0
-    try:
-        sak_path = SAKURA_PNG if SAKURA_PNG.exists() else (SAKURA_DIR / "sakura_happy.png")
-        if sak_path.exists():
-            _sak = Image.open(str(sak_path)).convert("RGBA")
-            target_h = min(180, HEIGHT - 16)
-            scale = target_h / _sak.height
-            sak_w = int(_sak.width * scale)
-            sak_h = int(_sak.height * scale)
-            sak = _sak.resize((sak_w, sak_h), Image.LANCZOS)
-            sak_x = WIDTH - sak_w - 8
-            sak_y = HEIGHT - sak_h - 8
-    except Exception as e:
-        logging.warning("Failed to prepare sakura overlay: %s", e)
-
+    # Sakura sprite + wrapped speech bubble via shared module
     text = comment or "Sakura: What a funny Calvin & Hobbes day! Nyaa~"
-
-    # Speech bubble with word-wrapping, anchored bottom-right but avoiding Sakura
-    pad_x, pad_y = 12, 10
-    max_bubble_width = 360
-    # If Sakura is present, limit bubble to not go underneath her
-    right_limit = sak_x - 8 if sak else WIDTH - 8
-    # Start with desired width, clamp so bubble right edge stays left of Sakura (if present)
-    bubble_w = min(max_bubble_width, right_limit - 12)
-    if bubble_w < 160:
-        bubble_w = 160  # don't get too skinny
-    # Wrap text to bubble inner width
-    inner_w = bubble_w - 2 * pad_x
-    lines = wrap_text_to_width(text, FONT_SAKURA, inner_w, draw)
-    # Estimate line height from font metrics
-    line_h = draw.textbbox((0, 0), "Ay", font=FONT_SAKURA)[3]
-    text_h = line_h * len(lines)
-    bubble_h = text_h + 2 * pad_y
-    bx = max(8, right_limit - bubble_w)
-    by = HEIGHT - bubble_h - 12
-    r = 12
-    draw.rounded_rectangle([bx, by, bx + bubble_w, by + bubble_h], radius=r, fill=(255, 245, 255), outline=(230, 200, 230), width=2)
-    # Draw wrapped lines
-    tx = bx + pad_x
-    ty = by + pad_y
-    for line in lines:
-        draw.text((tx, ty), line, font=FONT_SAKURA, fill=(60, 20, 80))
-        ty += line_h
-
-    # Finally paste Sakura on top, bottom-right
-    if sak is not None:
-        canvas.paste(sak, (sak_x, sak_y), sak)
+    sakura_add(
+        canvas,
+        text=text,
+        main=None,           # not weather-based here
+        temp=None,
+        units="metric",
+        override=SAKURA_OVERRIDE,
+        position="bottom-right",
+        target_h=180,
+        bubble_max_w=360,
+    )
 
     return canvas
 
