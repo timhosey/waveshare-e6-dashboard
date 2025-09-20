@@ -31,31 +31,6 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/tim/Scripting/e-ink_display
-
-# Load env vars (OWM_*, ROTATE_SECONDS, etc.)
-EnvironmentFile=/home/tim/Scripting/e-ink_display/.env
-# Hint for Waveshare lib
-Environment=GPIOZERO_PIN_FACTORY=lgpio
-# Ensure venv is preferred for PATH and child scripts
-Environment=PATH=/home/tim/Scripting/e-ink_display/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin
-# Pass venv python to rotator (if your code reads PYTHON_BIN)
-Environment=PYTHON_BIN=/home/tim/Scripting/e-ink_display/.venv/bin/python
-
-# Run the rotator with the venv interpreter
-ExecStart=/home/tim/Scripting/e-ink_display/.venv/bin/python /home/tim/Scripting/e-ink_display/dashboard.py
-
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-[Unit]
-Description=E-Ink Dashboard Rotator (Sakura-chan)
-After=network-online.target
-
-[Service]
-Type=simple
 # IMPORTANT: run through bash -lc so we can `source` the venv
 WorkingDirectory=/home/tim/Scripting/e-ink_display
 EnvironmentFile=/home/tim/Scripting/e-ink_display/.env
