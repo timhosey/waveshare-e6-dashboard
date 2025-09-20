@@ -318,14 +318,26 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     gap = 12
     start_x = 20
     start_y = 200
+    # Pastel outline colors per condition (subtle, e-ink friendly)
+    pastel = {
+        "sun":      (255, 210, 90),   # warm yellow
+        "clouds":   (200, 200, 220),  # soft gray-lavender
+        "rain":     (150, 190, 240),  # pastel blue
+        "drizzle":  (160, 200, 245),  # lighter blue
+        "snow":     (200, 230, 255),  # icy blue
+        "mist":     (210, 210, 230),  # very soft gray
+        "thunder":  (240, 180, 120),  # muted amber
+    }
     for i, day in enumerate(daily[1:4], start=0):
         x = start_x + i * (card_w + gap)
         y = start_y
-        draw.rounded_rectangle([x, y, x + card_w, y + 140], radius=16, outline=(230, 230, 240), width=2, fill=(250, 250, 255))
         dt = datetime.fromtimestamp(day.get("dt", time.time()))
         name = dt.strftime("%a")
         w = day.get("weather", [{"id": 800, "main": "Clear", "description": ""}])[0]
         i_key = owm_icon_to_simple(w.get("id", 800), w.get("main", "Clear"), w.get("description", ""))
+        # Choose outline color based on icon key
+        outline_col = pastel.get(i_key, (230, 230, 240))
+        draw.rounded_rectangle([x, y, x + card_w, y + 140], radius=16, outline=outline_col, width=4, fill=None)
         ic = load_icon(i_key, 48)
         tmax = day.get("temp", {}).get("max")
         tmin = day.get("temp", {}).get("min")
