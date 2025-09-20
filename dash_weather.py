@@ -56,6 +56,38 @@ if 'CACHE_TTL' not in globals():
 if 'HEADERS' not in globals():
     HEADERS = {"User-Agent": "SakuraWeather/1.0 (personal use)"}
 
+# Allow overriding cache TTL via env (minutes)
+WEATHER_CACHE_TTL_MIN = int(os.environ.get("WEATHER_CACHE_TTL_MIN", "30"))
+CACHE_TTL = timedelta(minutes=WEATHER_CACHE_TTL_MIN)
+
+def load_cache(path: Path, ttl: timedelta) -> dict | None:
+    try:
+        if not path.exists():
+            return None
+        raw = path.read_text()
+        data = json.loads(raw)
+        ts = data.get("_ts")
+        if ts is None:
+            return None
+        age = datetime.now().timestamp() - float(ts)
+        if age <= ttl.total_seconds():
+            logging.info("[dash_weather] using cached weather (age: %.0fs)", age)
+            return data
+        else:
+            logging.info("[dash_weather] cache stale (age: %.0fs > %.0fs)", age, ttl.total_seconds())
+    except Exception as e:
+        logging.warning("[dash_weather] failed to load cache: %s", e)
+    return None
+
+def save_cache(path: Path, payload: dict) -> None:
+    try:
+        payload = dict(payload)
+        payload["_ts"] = datetime.now().timestamp()
+        path.write_text(json.dumps(payload))
+        logging.info("[dash_weather] wrote weather cache → %s", path)
+    except Exception as e:
+        logging.warning("[dash_weather] failed to write cache: %s", e)
+
 # Fonts
 if 'FONT_DIR' not in globals():
     FONT_DIR = Path("fonts")
@@ -290,9 +322,19 @@ def display_on_epd(img: Image.Image):
         logging.error("[dash_weather] EPD error: %s — saving preview to out_weather.png", e)
         img.save("out_weather.png")
 
-def main():
-    logging.info("[dash_weather] fetching weather…")
+
+# Convenience wrapper: use cache if fresh, else fetch and cache
+def get_weather() -> dict:
+    cached = load_cache(WEATHER_CACHE, CACHE_TTL)
+    if cached is not None:
+        return cached
+    logging.info("[dash_weather] fetching weather (no fresh cache)…")
     data = fetch_weather()
+    save_cache(WEATHER_CACHE, data)
+    return data
+
+def main():
+    data = get_weather()
     logging.info("[dash_weather] composing dashboard…")
     dash = compose_weather_dashboard(data)
     logging.info("[dash_weather] displaying…")
