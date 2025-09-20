@@ -1,4 +1,6 @@
 import logging
+import os
+import sys
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logging.info("[dash_weather] starting up…")
 
