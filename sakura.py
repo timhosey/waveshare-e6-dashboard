@@ -105,7 +105,7 @@ def pick_sprite_filename(main: Optional[str], temp_val, units: str, override: Op
         return _SAKURA_MAP.get(main_t, "sakura_sunny.png")
 
     # Hoodie window for mild temps when not precip/mist
-    if temp_f is not None and 55.0 <= temp_f <= 70.0:
+    if temp_f is not None and 45.0 <= temp_f <= 65.0:
         return "sakura_hoodie.png"
 
     # Clear / Clouds behavior (hot clear → swimsuit; cold clear → cardigan/cloudy)
