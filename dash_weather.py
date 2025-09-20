@@ -1,3 +1,49 @@
+import logging
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logging.info("[dash_weather] starting up…")
+
+os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
+EPD_LIB = "./lib"
+if os.path.exists(EPD_LIB):
+    sys.path.append(EPD_LIB)
+
+epd_driver = None
+try:
+    from waveshare_epd import epd7in3e as _epd_driver
+    epd_driver = _epd_driver
+    logging.info("[dash_weather] Waveshare EPD driver loaded")
+except Exception as e:
+    logging.warning("[dash_weather] EPD driver unavailable (%s). Will save preview PNG instead.", e)
+
+# ... [assume other imports and code here]
+
+# After creating fonts, add:
+logging.info("[dash_weather] fonts loaded: MPLUSRounded1c + Fredoka")
+
+def display_on_epd(img: Image.Image):
+    if epd_driver is None:
+        logging.warning("[dash_weather] No EPD driver; saving preview to out_weather.png")
+        img.save("out_weather.png")
+        return
+    try:
+        epd = epd_driver.EPD()
+        epd.init()
+        logging.info("Displaying on EPD (single refresh)…")
+        epd.display(epd.getbuffer(img))
+        epd.sleep()
+        logging.info("Done. EPD sleeping.")
+    except Exception as e:
+        logging.error("[dash_weather] EPD error: %s — saving preview to out_weather.png", e)
+        img.save("out_weather.png")
+
+def main():
+    logging.info("[dash_weather] fetching weather…")
+    data = get_weather()
+    logging.info("[dash_weather] composing dashboard…")
+    dash = compose_weather_dashboard(data)
+    logging.info("[dash_weather] displaying…")
+    display_on_epd(dash)
+
 def fetch_weather_3_0():
     """Fetch using One Call 3.0 (paid). Returns native OneCall 3.0 JSON or raises for non-200."""
     if not (OWM_API_KEY and OWM_LAT and OWM_LON):
