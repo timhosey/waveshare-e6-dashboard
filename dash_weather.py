@@ -2,6 +2,12 @@ import logging
 import os
 import sys
 from PIL import Image, ImageDraw, ImageFont
+import time
+import json
+import requests
+from datetime import datetime, timedelta
+from pathlib import Path
+from io import BytesIO
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logging.info("[dash_weather] starting up…")
 
@@ -150,3 +156,7 @@ def fetch_weather():
             logging.warning("One Call 3.0 unauthorized (%s). Falling back to free 2.5 endpoints.", status)
             return fetch_weather_2_5()
         raise
+
+
+if __name__ == "__main__":
+    main()
