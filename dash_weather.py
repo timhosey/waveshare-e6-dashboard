@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from PIL import Image, ImageDraw, ImageFont
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logging.info("[dash_weather] starting up…")
 
