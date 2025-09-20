@@ -12,6 +12,10 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logging.info("[dash_weather] starting up…")
 
 os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
+
+from dotenv import load_dotenv
+load_dotenv()
+
 EPD_LIB = "./lib"
 if os.path.exists(EPD_LIB):
     sys.path.append(EPD_LIB)
