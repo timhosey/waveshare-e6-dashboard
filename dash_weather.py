@@ -21,6 +21,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from io import BytesIO
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import requests
 from PIL import Image, ImageDraw, ImageFont
 
