@@ -45,9 +45,13 @@ SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "happy")  # e.g., happy, worried, 
 SAKURA_DIR = Path("img")
 SAKURA_PNG = SAKURA_DIR / f"sakura_{SAKURA_EMOTE}.png"  # default: img/sakura_happy.png
 
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"  # fallback
-FONT_BIG = ImageFont.truetype(FONT_PATH, 28)
-FONT_SMALL = ImageFont.truetype(FONT_PATH, 18)
+FONT_DIR = Path("fonts")
+
+# Dashboard/info text font
+FONT_INFO = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 28)
+
+# Sakura’s speech bubble font
+FONT_SAKURA = ImageFont.truetype(str(FONT_DIR / "Fredoka-Regular.ttf"), 20)
 
 HEADERS = {
     "User-Agent": "SakuraDash/1.0 (+https://example.local) - personal use"
@@ -179,7 +183,7 @@ def compose_dashboard(strip_img: Image.Image, comment: str = None):
     r = 12
     draw.rounded_rectangle([bx, by, bx + bubble_w, by + bubble_h], radius=r, fill=(255, 245, 255), outline=(230, 200, 230), width=2)
     text = comment or "Sakura: What a funny Calvin & Hobbes day! Nyaa~"
-    draw.text((bx + 12, by + 12), text, font=FONT_SMALL, fill=(60, 20, 80))
+    draw.text((bx + 12, by + 12), text, font=FONT_SAKURA, fill=(60, 20, 80))
 
     # Sakura PNG overlay (bottom-right), scaled to a friendly height
     try:
