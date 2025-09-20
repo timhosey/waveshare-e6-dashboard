@@ -100,13 +100,12 @@ except Exception as e:
     FONT_INFO = FONT_INFO_SM = FONT_SAKURA = ImageFont.load_default()
 logging.info("[dash_weather] fonts loaded: MPLUSRounded1c + Fredoka")
 
-# Sakura art paths
+# Sakura art + weather icons
 if 'SAKURA_EMOTE' not in globals():
-    SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "happy")
+    # Set to 'auto' to let the code choose an outfit based on weather
+    SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "auto")
 if 'SAKURA_DIR' not in globals():
-    SAKURA_DIR = Path("img")
-if 'SAKURA_PNG' not in globals():
-    SAKURA_PNG = SAKURA_DIR / f"sakura_{SAKURA_EMOTE}.png"
+    SAKURA_DIR = Path("img/sakura")
 if 'WEATHER_ICON_DIR' not in globals():
     WEATHER_ICON_DIR = Path("img/weather")
 
@@ -136,6 +135,9 @@ def wrap_text_to_width(text, font, max_width, draw):
 def load_icon(name: str, size: int) -> Image.Image | None:
     """Load a weather icon PNG by simple key (e.g., 'sun', 'clouds'). Returns RGBA or None."""
     p = WEATHER_ICON_DIR / f"{name}.png"
+    p_alt = WEATHER_ICON_DIR / f"{name}_48.png"
+    if not p.exists() and size == 48 and p_alt.exists():
+        p = p_alt
     if not p.exists():
         return None
     img = Image.open(p).convert("RGBA")
@@ -186,29 +188,66 @@ def sakura_comment(main: str, temp: float, desc: str) -> str:
         return f"Sakura: Sunny smiles! ☀️ ({t}{units_sym})"
     return f"Sakura: {main.title() if main else 'Weather'} vibes~ ({t}{units_sym})"
 
+# --- Sakura outfit picker ---
+def _to_fahrenheit(val, units):
+    try:
+        v = float(val)
+    except Exception:
+        return None
+    if units == "imperial":
+        return v
+    # metric -> convert C to F
+    return v * 9.0/5.0 + 32.0
+
+# Map OpenWeather "main" field to outfit base key
+_SAKURA_MAP = {
+    "Thunderstorm": "sakura_thunder.png",
+    "Rain":         "sakura_rain.png",
+    "Drizzle":      "sakura_rain.png",
+    "Snow":         "sakura_snow.png",
+    "Mist":         "sakura_mist.png",
+    "Fog":          "sakura_mist.png",
+    "Clouds":       "sakura_cloudy.png",
+    "Clear":        "sakura_sunny.png",
+}
+
+def pick_sakura_sprite(main: str, temp_val, units: str) -> str:
+    """Return filename for Sakura outfit based on weather + temperature.
+    Hoodie rule: 55–70°F when not precip/snow/thunder/mist.
+    Sunny hot rule: if Clear and >= 80°F → sunny swimsuit.
+    """
+    # Allow manual override via SAKURA_EMOTE (unless it's 'auto')
+    if SAKURA_EMOTE and SAKURA_EMOTE.lower() != 'auto':
+        return f"sakura_{SAKURA_EMOTE.lower()}.png"
+
+    main = (main or "").title()
+    temp_f = _to_fahrenheit(temp_val, units)
+
+    # Precip-type outfits take precedence
+    if main in ("Thunderstorm", "Rain", "Drizzle", "Snow", "Mist", "Fog"):
+        return _SAKURA_MAP.get(main, "sakura_sunny.png")
+
+    # Hoodie window if not precip/mist/snow/thunder
+    if temp_f is not None and 55.0 <= temp_f <= 70.0:
+        return "sakura_hoodie.png"
+
+    # Clear / Clouds
+    if main == "Clear":
+        if temp_f is not None and temp_f >= 80.0:
+            return "sakura_sunny.png"  # swimsuit + shades
+        return "sakura_cloudy.png" if temp_f is not None and temp_f < 55.0 else "sakura_sunny.png"
+
+    if main == "Clouds":
+        return "sakura_cloudy.png"
+
+    # Fallback
+    return _SAKURA_MAP.get(main, "sakura_sunny.png")
+
 # ------------ Main compositor ------------
 def compose_weather_dashboard(data: dict) -> Image.Image:
     """Return an 800x480 RGB image with current + 3-day forecast and Sakura bubble."""
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     draw = ImageDraw.Draw(canvas)
-
-    # Precompute Sakura (paste after bubble)
-    sak = None
-    sak_w = sak_h = 0
-    sak_x = sak_y = 0
-    try:
-        sak_path = SAKURA_PNG if SAKURA_PNG.exists() else (SAKURA_DIR / "sakura_happy.png")
-        if sak_path.exists():
-            _sak = Image.open(str(sak_path)).convert("RGBA")
-            target_h = min(180, HEIGHT - 16)
-            scale = target_h / _sak.height
-            sak_w = int(_sak.width * scale)
-            sak_h = int(_sak.height * scale)
-            sak = _sak.resize((sak_w, sak_h), Image.LANCZOS)
-            sak_x = WIDTH - sak_w - 8
-            sak_y = HEIGHT - sak_h - 8
-    except Exception as e:
-        logging.warning("Failed to prepare Sakura: %s", e)
 
     # Extract weather pieces
     current = data.get("current", {})
@@ -234,6 +273,29 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     temp = current.get("temp", 0)
     feels = current.get("feels_like", temp)
     units_sym = "°C" if OWM_UNITS == "metric" else "°F"
+
+    # Choose Sakura outfit based on weather + temperature
+    sak = None
+    sak_w = sak_h = 0
+    sak_x = sak_y = 0
+    try:
+        outfit = pick_sakura_sprite(main, temp, OWM_UNITS)
+        sak_path = SAKURA_DIR / outfit
+        if not sak_path.exists():
+            # fallback to happy default in legacy location if present
+            legacy = Path("img") / "sakura_happy.png"
+            sak_path = legacy if legacy.exists() else sak_path
+        if sak_path.exists():
+            _sak = Image.open(str(sak_path)).convert("RGBA")
+            target_h = min(180, HEIGHT - 16)
+            scale = target_h / _sak.height
+            sak_w = int(_sak.width * scale)
+            sak_h = int(_sak.height * scale)
+            sak = _sak.resize((sak_w, sak_h), Image.LANCZOS)
+            sak_x = WIDTH - sak_w - 8
+            sak_y = HEIGHT - sak_h - 8
+    except Exception as e:
+        logging.warning("Failed to prepare Sakura: %s", e)
 
     left_x = 20
     cur_y = 60
