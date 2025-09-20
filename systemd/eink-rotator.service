@@ -12,6 +12,10 @@ EnvironmentFile=/home/tim/Scripting/e-ink_display/.env
 
 # GPIO backend hint (works with your Waveshare lib)
 Environment=GPIOZERO_PIN_FACTORY=lgpio
+# Force child dashboards to use the same venv interpreter via env (dashboard.py respects PYTHON_BIN)
+Environment=PYTHON_BIN=/home/tim/Scripting/e-ink_display/.venv/bin/python
+# Prefer venv bin on PATH for any console scripts
+Environment=PATH=/home/tim/Scripting/e-ink_display/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin
 
 # Use your venv’s python
 ExecStart=/home/tim/Scripting/e-ink_display/.venv/bin/python /home/tim/Scripting/e-ink_display/dashboard.py
@@ -20,8 +24,7 @@ ExecStart=/home/tim/Scripting/e-ink_display/.venv/bin/python /home/tim/Scripting
 Restart=always
 RestartSec=5
 
-# Access to SPI/GPIO devices without running as root
-SupplementaryGroups=spi gpio
+
 
 # A little limit bump just in case
 NoNewPrivileges=true
