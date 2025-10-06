@@ -52,6 +52,7 @@ ROOT = Path(__file__).resolve().parent
 SCRIPT_MAP = {
     "comic": ROOT / "dash_comic.py",
     "weather": ROOT / "dash_weather.py",
+    "motivation": ROOT / "dash_motivation.py",
 }
 
 ORDER = []
