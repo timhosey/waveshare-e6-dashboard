@@ -1,46 +1,35 @@
-import os
-import sys
-import subprocess
-from pathlib import Path
-import logging
-
-log = logging.getLogger(__name__)
-
-# Always use *this* interpreter for child scripts to keep the same venv
-PYTHON_BIN = sys.executable
-
-# Existing code that logs rotation and interval
-# Example existing code:
-# log.info("Rotate interval: %d seconds", rotate_seconds)
-
-log.info("Child Python: %s", PYTHON_BIN)
-
-def run_script(path: Path):
-    env = os.environ.copy()
-    # Prepend venv bin to PATH so any console scripts resolve inside the venv
-    venv_bin = str(Path(PYTHON_BIN).parent)
-    env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
-    cmd = [PYTHON_BIN, str(path)]
-    subprocess.Popen(
-        cmd,
-        env=env,
-    )
 [Unit]
 Description=E-Ink Dashboard Rotator (Sakura-chan)
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-# IMPORTANT: run through bash -lc so we can `source` the venv
-WorkingDirectory=/home/tim/Scripting/e-ink_display
-EnvironmentFile=/home/tim/Scripting/e-ink_display/.env
+# Dynamic paths will be replaced by install_service.sh
+WorkingDirectory=%WORKING_DIR%
+EnvironmentFile=%WORKING_DIR%/.env
 Environment=GPIOZERO_PIN_FACTORY=lgpio
 
-# Source the venv exactly like your CLI, then exec python so PID is clean
-ExecStart=/bin/bash -lc 'source /home/tim/Scripting/e-ink_display/.venv/bin/activate && exec python /home/tim/Scripting/e-ink_display/dashboard.py'
+# Source the venv and run the dashboard
+ExecStart=/bin/bash -lc 'source %WORKING_DIR%/.venv/bin/activate && exec python %WORKING_DIR%/dashboard.py'
 
+# Restart behavior
 Restart=always
-RestartSec=5
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=3
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=eink-rotator
+
+# Security (run as user, not root)
+User=%USER%
+Group=%USER%
+
+# Access to hardware without being root
+SupplementaryGroups=spi gpio
 
 [Install]
 WantedBy=default.target
