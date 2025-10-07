@@ -29,6 +29,14 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 log = logging.getLogger("rotator")
 
+# Import the archive scheduler
+try:
+    from archive_scheduler import archive_scheduler
+    ARCHIVE_AVAILABLE = True
+except ImportError:
+    ARCHIVE_AVAILABLE = False
+    log.warning("Archive scheduler not available")
+
 # ---------------- Dotenv (optional) ----------------
 try:
     from dotenv import load_dotenv, find_dotenv
@@ -81,6 +89,9 @@ def _sig_handler(signum, frame):
     global _stop
     log.info("Signal %s received — will stop after current run.", signum)
     _stop = True
+    # Stop archive scheduler gracefully
+    if ARCHIVE_AVAILABLE:
+        archive_scheduler.stop()
 
 signal.signal(signal.SIGINT, _sig_handler)
 signal.signal(signal.SIGTERM, _sig_handler)
@@ -128,22 +139,35 @@ def run_script(path: Path) -> int:
 # ---------------- Main loop ----------------
 
 def main():
-    for name, path in cycle(ORDER):
-        if _stop:
-            break
-        rc = run_script(path)
-        if rc == 0:
-            log.info("%s completed successfully.", name)
-        else:
-            log.warning("%s exited with code %s.", name, rc)
+    # Start archive scheduler
+    if ARCHIVE_AVAILABLE:
+        archive_scheduler.start()
+        log.info("Archive scheduler started - daily snapshots at 1:00 AM")
+    else:
+        log.info("Archive scheduler not available")
+    
+    try:
+        for name, path in cycle(ORDER):
+            if _stop:
+                break
+            rc = run_script(path)
+            if rc == 0:
+                log.info("%s completed successfully.", name)
+            else:
+                log.warning("%s exited with code %s.", name, rc)
 
-        # Sleep until next rotation or until stopped
-        remaining = ROTATE_SECONDS
-        while remaining > 0 and not _stop:
-            time.sleep(1)
-            remaining -= 1
-        if _stop:
-            break
+            # Sleep until next rotation or until stopped
+            remaining = ROTATE_SECONDS
+            while remaining > 0 and not _stop:
+                time.sleep(1)
+                remaining -= 1
+            if _stop:
+                break
+
+    finally:
+        # Stop archive scheduler when exiting
+        if ARCHIVE_AVAILABLE:
+            archive_scheduler.stop()
 
     log.info("Rotator exiting. Bye-bye! ✨")
 

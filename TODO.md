@@ -44,13 +44,13 @@
   - Better fallback mechanisms
   - Offline mode capabilities
   - Network connectivity monitoring
-- [ ] **Daily Archive System** ⭐
-  - Daily snapshot generation at 1 AM
-  - Archive all dashboard images with timestamps
-  - Local storage with organized folder structure
-  - Network storage support for snapshots (cloud backup)
-  - Archive cleanup/retention policies
-  - Browse/search archived dashboards
+- [x] **Daily Archive System** ⭐ ✅ IMPLEMENTED
+  - ✅ Daily snapshot generation at 1 AM (built into main service)
+  - ✅ Archive all dashboard images with timestamps
+  - ✅ Local storage with organized folder structure
+  - [ ] Network storage support for snapshots (cloud backup)
+  - ✅ Archive cleanup/retention policies
+  - ✅ Browse/search archived dashboards
 
 ## 🎨 UI/UX Improvements
 - [ ] **Layout refinements**
