@@ -371,7 +371,7 @@ def compose_motivation_dashboard():
     # Header
     today = date.today()
     header = f"Motivation Dashboard • {today.strftime('%A, %B %d')}"
-    draw.text((20, 20), header, font=FONT_TITLE, fill=(40, 40, 60))
+    draw.text((20, 20), header, font=FONT_TITLE, fill=(160, 80, 160))  # Purple for header
     
     # Calendar Section (left side)
     cal_x = 20
@@ -382,15 +382,15 @@ def compose_motivation_dashboard():
     jp_y = cal_y  # Same Y position as calendar
     jp_width = 360
     
-    # Calendar background - white for e-ink clarity
+    # Calendar background with colorful border
     draw.rounded_rectangle([cal_x - 10, cal_y - 10, cal_x + 380, cal_y + 280], 
-                          radius=12, outline=(200, 200, 220), width=2, fill=(255, 255, 255))
+                          radius=12, outline=(120, 160, 200), width=3, fill=(255, 255, 255))  # Blue border
     
-    # Japanese word background - white for e-ink clarity
+    # Japanese word background with colorful border
     draw.rounded_rectangle([jp_x - 10, jp_y - 10, jp_x + jp_width, jp_y + 120], 
-                          radius=12, outline=(200, 200, 220), width=2, fill=(255, 255, 255))
+                          radius=12, outline=(160, 120, 200), width=3, fill=(255, 255, 255))  # Purple border
     
-    draw.text((cal_x, cal_y), "Upcoming Events", font=FONT_TITLE, fill=(40, 40, 60))
+    draw.text((cal_x, cal_y), "Upcoming Events", font=FONT_TITLE, fill=(60, 140, 180))  # Blue for calendar header
     
     events = calendar_data.get("events", [])
     if not events:
@@ -421,15 +421,15 @@ def compose_motivation_dashboard():
             # Draw time (left-aligned in its column)
             draw.text((cal_x, y_offset), time_text, font=FONT_TEXT, fill=(0, 100, 200))
             # Draw title (left-aligned after time column)
-            draw.text((title_start_x, y_offset), title_text, font=FONT_TEXT, fill=(40, 40, 60))
+            draw.text((title_start_x, y_offset), title_text, font=FONT_TEXT, fill=(80, 120, 60))  # Green for event titles
             
             y_offset += 25
     
     # Japanese word text
-    draw.text((jp_x, jp_y), "Japanese Word of the Day", font=FONT_SMALL, fill=(80, 80, 100))
-    draw.text((jp_x, jp_y + 20), japanese_data["word"], font=FONT_JAPANESE, fill=(0, 0, 0))
-    draw.text((jp_x, jp_y + 45), japanese_data["reading"], font=FONT_TEXT, fill=(60, 60, 80))
-    draw.text((jp_x, jp_y + 70), japanese_data["meaning"], font=FONT_TEXT, fill=(80, 80, 100))
+    draw.text((jp_x, jp_y), "Japanese Word of the Day", font=FONT_SMALL, fill=(120, 80, 160))  # Purple for header
+    draw.text((jp_x, jp_y + 20), japanese_data["word"], font=FONT_JAPANESE, fill=(180, 60, 40))  # Red for Japanese word
+    draw.text((jp_x, jp_y + 45), japanese_data["reading"], font=FONT_TEXT, fill=(60, 140, 180))  # Blue for reading
+    draw.text((jp_x, jp_y + 70), japanese_data["meaning"], font=FONT_TEXT, fill=(100, 120, 60))  # Green for meaning
     
     # Motivational quote section (bottom)
     quotes = [
@@ -442,7 +442,7 @@ def compose_motivation_dashboard():
     
     quote = random.choice(quotes)
     quote_y = 380
-    draw.text((20, quote_y), f"💫 {quote}", font=FONT_SMALL, fill=(100, 100, 120))
+    draw.text((20, quote_y), f"💫 {quote}", font=FONT_SMALL, fill=(160, 100, 60))  # Orange for motivational quote
     
     # Sakura with motivation-themed commentary
     calendar_events = calendar_data.get("events", [])

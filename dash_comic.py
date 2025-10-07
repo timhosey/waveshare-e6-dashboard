@@ -178,21 +178,28 @@ def wrap_text_to_width(text, font, max_width, draw):
 
 # === Compose dashboard image ===
 def compose_dashboard(strip_img: Image.Image, comment: str = None):
-    """Return an 800x480 RGB image with strip and Sakura bubble/mascot."""
+    """Return an 800x480 RGB image with strip and colorful header."""
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+    
+    # Add colorful header
+    header = "Calvin & Hobbes Daily Strip"
+    draw.text((20, 10), header, font=FONT_TITLE, fill=(220, 100, 40))  # Orange header
+    
     # Resize strip to fit width (800) while preserving aspect ratio
     sw, sh = strip_img.size
-    scale = min(WIDTH / sw, HEIGHT / sh)  # use full screen height
+    scale = min(WIDTH / sw, (HEIGHT - 60) / sh)  # Leave space for header
     nw, nh = int(sw * scale), int(sh * scale)
     strip_resized = strip_img.resize((nw, nh), Image.LANCZOS)
-    # Paste centered horizontally, top-aligned with small margin
+    
+    # Paste centered horizontally, below header
     x = (WIDTH - nw) // 2
-    y = 8
+    y = 50  # Below header
     canvas.paste(strip_resized, (x, y))
-
-    draw = ImageDraw.Draw(canvas)
-
-    # Sakura integration removed - using full screen space
+    
+    # Add colorful border around comic
+    draw.rounded_rectangle([x-5, y-5, x + nw + 5, y + nh + 5], 
+                          radius=8, outline=(160, 120, 200), width=3, fill=None)  # Purple border
 
     return canvas
 
@@ -227,7 +234,10 @@ def compose_dashboard_no_display():
         # Return a placeholder image if no strip available
         canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
         draw = ImageDraw.Draw(canvas)
-        draw.text((20, 20), "No comic strip available for today", font=FONT_TEXT, fill=(100, 100, 100))
+        # Add colorful header even for error case
+        header = "Calvin & Hobbes Daily Strip"
+        draw.text((20, 10), header, font=FONT_TITLE, fill=(220, 100, 40))  # Orange header
+        draw.text((20, 50), "No comic strip available for today", font=FONT_TEXT, fill=(180, 60, 40))  # Red for error
         return canvas
     
     comment = f"Sakura: Here's today's strip — enjoy, Tim! ({date_str})"

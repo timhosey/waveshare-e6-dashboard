@@ -250,14 +250,14 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     daily = data.get("daily", [])[:4]  # today + next 3
     tz = data.get("timezone", "")
 
-    # Header
+    # Header with nice color
     now_ts = current.get("dt", time.time())
     try:
         now = datetime.fromtimestamp(now_ts)
     except Exception:
         now = datetime.now()
     header = now.strftime(f"%a %b %d  •  {tz or 'Local'}")
-    draw.text((20, 18), header, font=FONT_INFO_SM, fill=(20, 20, 40))
+    draw.text((20, 18), header, font=FONT_INFO_SM, fill=(60, 100, 180))  # Nice blue
 
     # Current conditions (left)
     wlist = current.get("weather", [{"id": 800, "main": "Clear", "description": "clear"}])
@@ -282,25 +282,25 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
         draw.rounded_rectangle([left_x, cur_y, left_x + icon_sz, cur_y + icon_sz], radius=18, outline=(200, 200, 220), width=3)
 
     tx = left_x + icon_sz + 16
-    draw.text((tx, cur_y), f"{round(temp) if isinstance(temp, (int, float)) else temp}{units_sym}", font=FONT_INFO, fill=(0, 0, 0))
-    draw.text((tx, cur_y + 42), main, font=FONT_INFO_SM, fill=(40, 40, 60))
+    draw.text((tx, cur_y), f"{round(temp) if isinstance(temp, (int, float)) else temp}{units_sym}", font=FONT_INFO, fill=(0, 100, 200))  # Bright blue for temp
+    draw.text((tx, cur_y + 42), main, font=FONT_INFO_SM, fill=(120, 80, 40))  # Warm brown for condition
     if isinstance(feels, (int, float)):
-        draw.text((tx, cur_y + 72), f"Feels {round(feels)}{units_sym}", font=FONT_INFO_SM, fill=(60, 60, 80))
+        draw.text((tx, cur_y + 72), f"Feels {round(feels)}{units_sym}", font=FONT_INFO_SM, fill=(100, 120, 60))  # Green for feels like
 
     # Forecast cards (next 4 days) - expanded with full screen space
     card_w = 180
     gap = 15
     start_x = 20
     start_y = 180
-    # Pastel outline colors per condition (subtle, e-ink friendly)
-    pastel = {
-        "sun":      (255, 210, 90),   # warm yellow
-        "clouds":   (200, 200, 220),  # soft gray-lavender
-        "rain":     (150, 190, 240),  # pastel blue
-        "drizzle":  (160, 200, 245),  # lighter blue
-        "snow":     (200, 230, 255),  # icy blue
-        "mist":     (210, 210, 230),  # very soft gray
-        "thunder":  (240, 180, 120),  # muted amber
+    # Colorful outline colors per condition (e-ink friendly but more vibrant)
+    condition_colors = {
+        "sun":      (255, 180, 0),    # vibrant orange
+        "clouds":   (140, 160, 200),  # nice blue-gray
+        "rain":     (80, 150, 220),   # bright blue
+        "drizzle":  (100, 170, 230),  # lighter blue
+        "snow":     (180, 200, 255),  # icy blue
+        "mist":     (160, 180, 200),  # soft gray-blue
+        "thunder":  (220, 140, 60),   # warm amber
     }
     for i, day in enumerate(daily[1:5], start=0):  # Show next 4 days instead of 3
         x = start_x + i * (card_w + gap)
@@ -310,21 +310,21 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
         w = day.get("weather", [{"id": 800, "main": "Clear", "description": ""}])[0]
         i_key = owm_icon_to_simple(w.get("id", 800), w.get("main", "Clear"), w.get("description", ""))
         # Choose outline color based on icon key
-        outline_col = pastel.get(i_key, (230, 230, 240))
+        outline_col = condition_colors.get(i_key, (200, 200, 220))
         draw.rounded_rectangle([x, y, x + card_w, y + 140], radius=16, outline=outline_col, width=4, fill=None)
         ic = load_icon(i_key, 48)
         tmax = day.get("temp", {}).get("max")
         tmin = day.get("temp", {}).get("min")
 
-        draw.text((x + 14, y + 12), name, font=FONT_INFO_SM, fill=(30, 30, 50))
+        draw.text((x + 14, y + 12), name, font=FONT_INFO_SM, fill=(80, 60, 120))  # Purple for day names
         if ic:
             canvas.paste(ic, (x + 14, y + 42), ic)
         else:
-            draw.rounded_rectangle([x + 14, y + 42, x + 62, y + 90], radius=10, outline=(210, 210, 230), width=2)
+            draw.rounded_rectangle([x + 14, y + 42, x + 62, y + 90], radius=10, outline=outline_col, width=2)
         if isinstance(tmax, (int, float)):
-            draw.text((x + 80, y + 50), f"{round(tmax)}{units_sym}", font=FONT_INFO_SM, fill=(0, 0, 0))
+            draw.text((x + 80, y + 50), f"{round(tmax)}{units_sym}", font=FONT_INFO_SM, fill=(220, 60, 40))  # Red for high temp
         if isinstance(tmin, (int, float)):
-            draw.text((x + 80, y + 80), f"{round(tmin)}{units_sym}", font=FONT_INFO_SM, fill=(90, 90, 110))
+            draw.text((x + 80, y + 80), f"{round(tmin)}{units_sym}", font=FONT_INFO_SM, fill=(60, 120, 200))  # Blue for low temp
 
     # Sakura integration removed - using full screen space
 

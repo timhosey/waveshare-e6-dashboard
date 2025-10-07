@@ -219,10 +219,10 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     draw = ImageDraw.Draw(canvas)
     
-    # Header
+    # Header with nice color
     now = datetime.now()
     header = f"News Update • {now.strftime('%a %b %d, %H:%M')}"
-    draw.text((20, 20), header, font=FONT_HEADER, fill=(20, 20, 40))
+    draw.text((20, 20), header, font=FONT_HEADER, fill=(60, 100, 180))  # Nice blue
     
     # Use full screen space - no Sakura reservation
     content_width = WIDTH - 40
@@ -234,15 +234,15 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
     
     y_start = 70
     
-    # Gaming News Box (left)
+    # Gaming News Box (left) with vibrant purple border
     gaming_box_x = 20
     gaming_box_y = y_start
     draw.rounded_rectangle(
         [(gaming_box_x, gaming_box_y), (gaming_box_x + box_width, gaming_box_y + box_height)],
         radius=15,
-        outline=(180, 140, 200),
-        width=3,
-        fill=(250, 240, 255)
+        outline=(180, 100, 220),  # Vibrant purple border
+        width=4,
+        fill=None  # No background fill
     )
     
     # Gaming header
@@ -260,24 +260,24 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
             title_lines = wrap_text_to_width(article['title'], FONT_TITLE, box_width - 30, draw)
             title_y = article_y
             for line in title_lines[:3]:  # Max 3 lines for title
-                draw.text((gaming_box_x + 15, title_y), line, font=FONT_TITLE, fill=(60, 20, 100))
+                draw.text((gaming_box_x + 15, title_y), line, font=FONT_TITLE, fill=(140, 60, 180))  # Bright purple for gaming titles
                 title_y += 20
             
             # Source
             source = article['source']
-            draw.text((gaming_box_x + 15, title_y + 5), f"• {source}", font=FONT_SOURCE, fill=(100, 60, 140))
+            draw.text((gaming_box_x + 15, title_y + 5), f"• {source}", font=FONT_SOURCE, fill=(160, 80, 40))  # Orange for gaming sources
     else:
         draw.text((gaming_box_x + 15, gaming_box_y + 60), "No gaming news", font=FONT_TITLE, fill=(120, 120, 140))
     
-    # Tech News Box (right)
+    # Tech News Box (right) with vibrant blue border
     tech_box_x = gaming_box_x + box_width + 20
     tech_box_y = y_start
     draw.rounded_rectangle(
         [(tech_box_x, tech_box_y), (tech_box_x + box_width, tech_box_y + box_height)],
         radius=15,
-        outline=(140, 180, 220),
-        width=3,
-        fill=(240, 250, 255)
+        outline=(100, 140, 220),  # Vibrant blue border
+        width=4,
+        fill=None  # No background fill
     )
     
     # Tech header
@@ -295,12 +295,12 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
             title_lines = wrap_text_to_width(article['title'], FONT_TITLE, box_width - 30, draw)
             title_y = article_y
             for line in title_lines[:3]:  # Max 3 lines for title
-                draw.text((tech_box_x + 15, title_y), line, font=FONT_TITLE, fill=(20, 60, 100))
+                draw.text((tech_box_x + 15, title_y), line, font=FONT_TITLE, fill=(40, 120, 200))  # Bright blue for tech titles
                 title_y += 20
             
             # Source
             source = article['source']
-            draw.text((tech_box_x + 15, title_y + 5), f"• {source}", font=FONT_SOURCE, fill=(60, 100, 140))
+            draw.text((tech_box_x + 15, title_y + 5), f"• {source}", font=FONT_SOURCE, fill=(120, 100, 60))  # Brown for tech sources
     else:
         draw.text((tech_box_x + 15, tech_box_y + 60), "No tech news", font=FONT_TITLE, fill=(120, 120, 140))
     

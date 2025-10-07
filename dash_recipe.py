@@ -272,7 +272,7 @@ def compose_recipe_dashboard():
     # Header
     today = datetime.now().strftime("%A, %B %d")
     header = f"Recipe Inspiration • {today}"
-    draw.text((20, 20), header, font=FONT_TITLE, fill=(40, 40, 60))
+    draw.text((20, 20), header, font=FONT_TITLE, fill=(180, 60, 40))  # Warm orange-red
     
     # Recipe card background
     recipe_x = 20
@@ -280,19 +280,19 @@ def compose_recipe_dashboard():
     recipe_width = 500
     recipe_height = 320
     
-    # Recipe card with white background for e-ink
+    # Recipe card with colorful border
     draw.rounded_rectangle([recipe_x - 10, recipe_y - 10, recipe_x + recipe_width, recipe_y + recipe_height], 
-                          radius=12, outline=(200, 200, 220), width=2, fill=(255, 255, 255))
+                          radius=12, outline=(200, 120, 80), width=3, fill=(255, 255, 255))  # Warm orange border
     
     # Recipe title
-    draw.text((recipe_x, recipe_y), recipe["title"], font=FONT_TITLE, fill=(0, 0, 0))
+    draw.text((recipe_x, recipe_y), recipe["title"], font=FONT_TITLE, fill=(140, 80, 40))  # Rich brown
     
     # Recipe info (time, difficulty)
     info_text = f"⏱️ {recipe['cook_time']} • 🎯 {recipe['difficulty']}"
-    draw.text((recipe_x, recipe_y + 35), info_text, font=FONT_SMALL, fill=(80, 80, 100))
+    draw.text((recipe_x, recipe_y + 35), info_text, font=FONT_SMALL, fill=(100, 140, 60))  # Green for timing
     
     # Ingredients section
-    draw.text((recipe_x, recipe_y + 65), "Ingredients:", font=FONT_TEXT, fill=(40, 40, 60))
+    draw.text((recipe_x, recipe_y + 65), "Ingredients:", font=FONT_TEXT, fill=(120, 80, 160))  # Purple header
     
     ingredients = recipe["ingredients"]
     y_offset = recipe_y + 90
@@ -305,7 +305,7 @@ def compose_recipe_dashboard():
         if len(ingredient) > 35:
             ingredient = ingredient[:32] + "..."
         
-        draw.text((recipe_x + 20, y_offset), f"• {ingredient}", font=FONT_INGREDIENT, fill=(60, 60, 80))
+        draw.text((recipe_x + 20, y_offset), f"• {ingredient}", font=FONT_INGREDIENT, fill=(80, 100, 60))  # Green for ingredients
         y_offset += 22
     
     # Cooking tip section (right side)
@@ -315,9 +315,9 @@ def compose_recipe_dashboard():
     tip_height = 200
     
     draw.rounded_rectangle([tip_x - 10, tip_y - 10, tip_x + tip_width, tip_y + tip_height], 
-                          radius=12, outline=(200, 200, 220), width=2, fill=(255, 255, 255))
+                          radius=12, outline=(120, 160, 200), width=3, fill=(255, 255, 255))  # Blue border
     
-    draw.text((tip_x, tip_y), "💡 Chef's Tip", font=FONT_TEXT, fill=(40, 40, 60))
+    draw.text((tip_x, tip_y), "💡 Chef's Tip", font=FONT_TEXT, fill=(60, 120, 180))  # Blue for tip header
     
     # Wrap tip text
     tip_text = recipe.get("tip", "Cook with love and patience!")
@@ -325,7 +325,7 @@ def compose_recipe_dashboard():
     
     tip_y_offset = tip_y + 30
     for line in tip_lines:
-        draw.text((tip_x, tip_y_offset), line, font=FONT_SMALL, fill=(80, 80, 100))
+        draw.text((tip_x, tip_y_offset), line, font=FONT_SMALL, fill=(100, 120, 140))  # Lighter blue for tip text
         tip_y_offset += 18
     
     # Seasonal cooking advice
@@ -341,7 +341,7 @@ def compose_recipe_dashboard():
     ]
     
     seasonal_tip = random.choice(seasonal_tips)
-    draw.text((tip_x, tip_y + 150), seasonal_tip, font=FONT_SMALL, fill=(100, 100, 120))
+    draw.text((tip_x, tip_y + 150), seasonal_tip, font=FONT_SMALL, fill=(160, 100, 60))  # Orange for seasonal tip
     
     # Motivational cooking quote
     cooking_quotes = [
@@ -354,7 +354,7 @@ def compose_recipe_dashboard():
     
     quote = random.choice(cooking_quotes)
     quote_y = 400
-    draw.text((20, quote_y), quote, font=FONT_SMALL, fill=(100, 100, 120))
+    draw.text((20, quote_y), quote, font=FONT_SMALL, fill=(120, 80, 160))  # Purple for inspirational quote
     
     # Sakura with cooking-themed commentary
     cook_time = recipe["cook_time"]
