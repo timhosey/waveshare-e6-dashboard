@@ -384,13 +384,13 @@ def compose_motivation_dashboard():
     jp_y = cal_y  # Same Y position as calendar
     jp_width = 360
     
-    # Calendar background
+    # Calendar background - white for e-ink clarity
     draw.rounded_rectangle([cal_x - 10, cal_y - 10, cal_x + 380, cal_y + 280], 
-                          radius=12, outline=(200, 200, 220), width=2, fill=(250, 250, 255))
+                          radius=12, outline=(200, 200, 220), width=2, fill=(255, 255, 255))
     
-    # Japanese word background - aligned with calendar
+    # Japanese word background - white for e-ink clarity
     draw.rounded_rectangle([jp_x - 10, jp_y - 10, jp_x + jp_width, jp_y + 120], 
-                          radius=12, outline=(200, 200, 220), width=2, fill=(250, 250, 255))
+                          radius=12, outline=(200, 200, 220), width=2, fill=(255, 255, 255))
     
     draw.text((cal_x, cal_y), "Upcoming Events", font=FONT_TITLE, fill=(40, 40, 60))
     
@@ -411,12 +411,20 @@ def compose_motivation_dashboard():
             time_text = f"{event['time']}"
             title_text = event['title']
             
-            # Truncate long titles
-            if len(title_text) > 35:
-                title_text = title_text[:32] + "..."
+            # Measure time text width to avoid overlap
+            time_bbox = draw.textbbox((0, 0), time_text, font=FONT_TEXT)
+            time_width = time_bbox[2] - time_bbox[0]
+            title_start_x = cal_x + time_width + 15  # 15px padding
+            
+            # Calculate available width for title
+            max_title_width = (cal_x + 380) - title_start_x - 10  # 10px margin from right edge
+            
+            # Truncate title if it would overflow
+            if len(title_text) > 20:  # Conservative truncation for e-ink
+                title_text = title_text[:17] + "..."
             
             draw.text((cal_x, y_offset), time_text, font=FONT_TEXT, fill=(0, 100, 200))
-            draw.text((cal_x + 80, y_offset), title_text, font=FONT_TEXT, fill=(40, 40, 60))
+            draw.text((title_start_x, y_offset), title_text, font=FONT_TEXT, fill=(40, 40, 60))
             
             y_offset += 25
     
