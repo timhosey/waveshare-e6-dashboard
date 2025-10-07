@@ -399,6 +399,10 @@ def display_on_epd(img: Image.Image):
     epd.sleep()
     logging.info("Done. EPD in sleep.")
 
+def compose_recipe_dashboard_no_display():
+    """Create the recipe dashboard image without displaying it on e-ink."""
+    return compose_recipe_dashboard()
+
 # === Main ===
 
 def main():

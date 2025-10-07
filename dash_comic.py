@@ -223,6 +223,19 @@ def display_on_epd(img: Image.Image):
     epd.sleep()
     logging.info("Done. EPD in sleep.")
 
+def compose_dashboard_no_display():
+    """Create the comic dashboard image without displaying it on e-ink."""
+    date_str = today_str()
+    strip = get_strip_for_date(date_str)
+    if strip is None:
+        # Return a placeholder image if no strip available
+        canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
+        draw = ImageDraw.Draw(canvas)
+        draw.text((20, 20), "No comic strip available for today", font=FONT_TEXT, fill=(100, 100, 100))
+        return canvas
+    
+    comment = f"Sakura: Here's today's strip — enjoy, Tim! ({date_str})"
+    return compose_dashboard(strip, comment=comment)
 
 # === Main ===
 def main():

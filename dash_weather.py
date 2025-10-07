@@ -363,6 +363,10 @@ def display_on_epd(img: Image.Image):
         logging.error("[dash_weather] EPD error: %s — saving preview to out_weather.png", e)
         img.save("out_weather.png")
 
+def compose_weather_dashboard_no_display():
+    """Create the weather dashboard image without displaying it on e-ink."""
+    data = get_weather()
+    return compose_weather_dashboard(data)
 
 # Convenience wrapper: use cache if fresh, else fetch and cache
 def get_weather() -> dict:

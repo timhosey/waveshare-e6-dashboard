@@ -489,6 +489,10 @@ def display_on_epd(img: Image.Image):
     epd.sleep()
     logging.info("Done. EPD in sleep.")
 
+def compose_motivation_dashboard_no_display():
+    """Create the motivation dashboard image without displaying it on e-ink."""
+    return compose_motivation_dashboard()
+
 # === Main ===
 
 def main():

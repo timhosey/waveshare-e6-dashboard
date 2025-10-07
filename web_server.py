@@ -20,10 +20,10 @@ from flask import Flask, render_template_string, jsonify, send_file, request, re
 
 # Import dashboard modules
 try:
-    from dash_comic import compose_dashboard as compose_comic
-    from dash_weather import compose_weather_dashboard
-    from dash_motivation import compose_motivation_dashboard
-    from dash_recipe import compose_recipe_dashboard
+    from dash_comic import compose_dashboard_no_display as compose_comic_web
+    from dash_weather import compose_weather_dashboard_no_display as compose_weather_web
+    from dash_motivation import compose_motivation_dashboard_no_display as compose_motivation_web
+    from dash_recipe import compose_recipe_dashboard_no_display as compose_recipe_web
     DASHBOARDS_AVAILABLE = True
 except ImportError as e:
     logging.warning("Dashboard modules not available: %s", e)
@@ -425,23 +425,23 @@ def get_dashboard(dashboard_name):
         if not DASHBOARDS_AVAILABLE:
             return jsonify({"success": False, "error": "Dashboard modules not available"})
         
-        # Generate the dashboard image
+        # Generate the dashboard image (web-only versions to avoid affecting e-ink display)
         if dashboard_name == 'comic':
-            dashboard_func = compose_comic
+            dashboard_func = compose_comic_web
             name = "Comic"
         elif dashboard_name == 'weather':
-            dashboard_func = compose_weather_dashboard
+            dashboard_func = compose_weather_web
             name = "Weather"
         elif dashboard_name == 'motivation':
-            dashboard_func = compose_motivation_dashboard
+            dashboard_func = compose_motivation_web
             name = "Motivation"
         elif dashboard_name == 'recipe':
-            dashboard_func = compose_recipe_dashboard
+            dashboard_func = compose_recipe_web
             name = "Recipe"
         else:
             return jsonify({"success": False, "error": f"Unknown dashboard: {dashboard_name}"})
         
-        # Generate the dashboard
+        # Generate the dashboard (web-only, no e-ink display update)
         img = dashboard_func()
         
         # Save to cache
