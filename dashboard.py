@@ -22,6 +22,7 @@ import time
 import signal
 import logging
 import subprocess
+import threading
 from itertools import cycle
 from pathlib import Path
 
@@ -36,6 +37,16 @@ try:
 except ImportError:
     ARCHIVE_AVAILABLE = False
     log.warning("Archive scheduler not available")
+
+# Import the web server
+try:
+    from web_server import start_web_server
+    WEB_AVAILABLE = True
+    WEB_PORT = int(os.environ.get("WEB_PORT", "5000"))
+except ImportError:
+    WEB_AVAILABLE = False
+    WEB_PORT = None
+    log.warning("Web server not available")
 
 # ---------------- Dotenv (optional) ----------------
 try:
@@ -145,6 +156,14 @@ def main():
         log.info("Archive scheduler started - daily snapshots at 1:00 AM")
     else:
         log.info("Archive scheduler not available")
+    
+    # Start web server
+    if WEB_AVAILABLE:
+        web_thread = threading.Thread(target=start_web_server, daemon=True)
+        web_thread.start()
+        log.info("Web server started - http://localhost:%d", WEB_PORT)
+    else:
+        log.info("Web server not available")
     
     try:
         for name, path in cycle(ORDER):
