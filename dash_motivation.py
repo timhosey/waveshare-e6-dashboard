@@ -52,7 +52,7 @@ CACHE_DIR.mkdir(exist_ok=True)
 # Cache files
 CALENDAR_CACHE = CACHE_DIR / "calendar.json"
 JAPANESE_CACHE = CACHE_DIR / "japanese.json"
-CACHE_TTL = timedelta(hours=1)  # Cache for 1 hour
+CACHE_TTL = timedelta(minutes=5)  # Cache for 5 minutes (for testing)
 
 # Google Calendar settings
 GOOGLE_CREDENTIALS_FILE = "credentials.json"
@@ -139,7 +139,10 @@ def format_time_for_display(dt_str: str) -> str:
 
 def get_google_calendar_events():
     """Fetch events from Google Calendar API."""
+    logging.info("Starting Google Calendar API call...")
+    
     if not GOOGLE_CALENDAR_AVAILABLE:
+        logging.error("Google Calendar API not available - missing dependencies")
         return {"events": [], "error": "Google Calendar API not available"}
     
     try:
@@ -147,37 +150,47 @@ def get_google_calendar_events():
         
         # Try service account first (for headless servers)
         if os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
-            logging.info("Using service account authentication...")
+            logging.info("Found service_account.json - using service account authentication")
             from google.oauth2 import service_account
             creds = service_account.Credentials.from_service_account_file(
                 GOOGLE_SERVICE_ACCOUNT_FILE, scopes=GOOGLE_SCOPES)
+            logging.info("Service account credentials loaded successfully")
         
         # Fall back to OAuth flow (for interactive use)
         elif os.path.exists(GOOGLE_CREDENTIALS_FILE):
-            logging.info("Using OAuth authentication...")
+            logging.info("Found credentials.json - using OAuth authentication")
             if os.path.exists(GOOGLE_TOKEN_FILE):
+                logging.info("Found existing token.json")
                 creds = Credentials.from_authorized_user_file(GOOGLE_TOKEN_FILE, GOOGLE_SCOPES)
             
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
+                    logging.info("Refreshing expired OAuth token")
                     creds.refresh(Request())
                 else:
                     # Check if we're in a headless environment
                     if os.environ.get('DISPLAY') is None and os.environ.get('SSH_TTY'):
+                        logging.error("Headless environment detected - OAuth requires browser")
                         return {"events": [], "error": "Headless environment detected. Use service account authentication instead of OAuth."}
                     
+                    logging.info("Starting OAuth flow...")
                     flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, GOOGLE_SCOPES)
                     creds = flow.run_local_server(port=0)
                 with open(GOOGLE_TOKEN_FILE, 'w') as token:
                     token.write(creds.to_json())
+                logging.info("OAuth token saved")
         else:
+            logging.error("No Google credentials found")
             return {"events": [], "error": "No Google credentials found. Place either credentials.json (OAuth) or service_account.json (service account) in project root."}
         
+        logging.info("Building Google Calendar service...")
         service = build('calendar', 'v3', credentials=creds)
         
         # Get events for today and tomorrow
         now = datetime.utcnow().isoformat() + 'Z'
         tomorrow = (datetime.utcnow() + timedelta(days=2)).isoformat() + 'Z'
+        
+        logging.info("Requesting events from %s to %s", now, tomorrow)
         
         events_result = service.events().list(
             calendarId='primary',
@@ -189,6 +202,7 @@ def get_google_calendar_events():
         ).execute()
         
         events = events_result.get('items', [])
+        logging.info("Raw API response: %d events found", len(events))
         
         event_list = []
         for event in events:
@@ -233,12 +247,26 @@ def get_japanese_word():
 
 def get_calendar_data():
     """Get calendar events with caching."""
+    logging.info("Getting calendar data...")
+    
     cached = load_cache(CALENDAR_CACHE, CACHE_TTL)
     if cached is not None:
+        logging.info("Using cached calendar data")
         return cached
     
-    logging.info("Fetching fresh calendar data...")
+    logging.info("Fetching fresh calendar data from Google Calendar API...")
     data = get_google_calendar_events()
+    
+    # Log the results for debugging
+    if data.get("error"):
+        logging.error("Calendar API error: %s", data["error"])
+    else:
+        event_count = len(data.get("events", []))
+        logging.info("Calendar API success: %d events retrieved", event_count)
+        if event_count > 0:
+            for i, event in enumerate(data["events"][:3]):  # Log first 3 events
+                logging.info("Event %d: %s - %s", i+1, event["time"], event["title"])
+    
     save_cache(CALENDAR_CACHE, data)
     return data
 
@@ -289,26 +317,21 @@ def compose_motivation_dashboard():
     header = f"Motivation Dashboard • {today.strftime('%A, %B %d')}"
     draw.text((20, 20), header, font=FONT_TITLE, fill=(40, 40, 60))
     
-    # Japanese Word Section (top-right)
-    jp_x = 420
-    jp_y = 60
-    jp_width = 360
-    
-    # Japanese word background
-    draw.rounded_rectangle([jp_x - 10, jp_y - 10, jp_x + jp_width, jp_y + 120], 
-                          radius=12, outline=(200, 200, 220), width=2, fill=(250, 250, 255))
-    
-    draw.text((jp_x, jp_y), "Japanese Word of the Day", font=FONT_SMALL, fill=(80, 80, 100))
-    draw.text((jp_x, jp_y + 20), japanese_data["word"], font=FONT_JAPANESE, fill=(0, 0, 0))
-    draw.text((jp_x, jp_y + 45), japanese_data["reading"], font=FONT_TEXT, fill=(60, 60, 80))
-    draw.text((jp_x, jp_y + 70), japanese_data["meaning"], font=FONT_TEXT, fill=(80, 80, 100))
-    
     # Calendar Section (left side)
     cal_x = 20
-    cal_y = 80
+    cal_y = 70  # Moved up to align with Japanese box
+    
+    # Japanese Word Section (top-right) - aligned with calendar
+    jp_x = 420
+    jp_y = cal_y  # Same Y position as calendar
+    jp_width = 360
     
     # Calendar background
     draw.rounded_rectangle([cal_x - 10, cal_y - 10, cal_x + 380, cal_y + 280], 
+                          radius=12, outline=(200, 200, 220), width=2, fill=(250, 250, 255))
+    
+    # Japanese word background - aligned with calendar
+    draw.rounded_rectangle([jp_x - 10, jp_y - 10, jp_x + jp_width, jp_y + 120], 
                           radius=12, outline=(200, 200, 220), width=2, fill=(250, 250, 255))
     
     draw.text((cal_x, cal_y), "Upcoming Events", font=FONT_TITLE, fill=(40, 40, 60))
@@ -338,6 +361,12 @@ def compose_motivation_dashboard():
             draw.text((cal_x + 80, y_offset), title_text, font=FONT_TEXT, fill=(40, 40, 60))
             
             y_offset += 25
+    
+    # Japanese word text
+    draw.text((jp_x, jp_y), "Japanese Word of the Day", font=FONT_SMALL, fill=(80, 80, 100))
+    draw.text((jp_x, jp_y + 20), japanese_data["word"], font=FONT_JAPANESE, fill=(0, 0, 0))
+    draw.text((jp_x, jp_y + 45), japanese_data["reading"], font=FONT_TEXT, fill=(60, 60, 80))
+    draw.text((jp_x, jp_y + 70), japanese_data["meaning"], font=FONT_TEXT, fill=(80, 80, 100))
     
     # Motivational quote section (bottom)
     quotes = [
@@ -398,6 +427,16 @@ def display_on_epd(img: Image.Image):
 # === Main ===
 
 def main():
+    # Check for debug flag to clear cache
+    if "--clear-cache" in sys.argv:
+        logging.info("Clearing calendar cache...")
+        if CALENDAR_CACHE.exists():
+            CALENDAR_CACHE.unlink()
+            logging.info("Calendar cache cleared")
+        if JAPANESE_CACHE.exists():
+            JAPANESE_CACHE.unlink()
+            logging.info("Japanese cache cleared")
+    
     logging.info("Creating motivation dashboard...")
     dash_img = compose_motivation_dashboard()
     display_on_epd(dash_img)
