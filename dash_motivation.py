@@ -186,6 +186,19 @@ def get_google_calendar_events():
         logging.info("Building Google Calendar service...")
         service = build('calendar', 'v3', credentials=creds)
         
+        # Debug: List available calendars
+        try:
+            calendar_list = service.calendarList().list().execute()
+            calendars = calendar_list.get('items', [])
+            logging.info("Available calendars:")
+            for cal in calendars:
+                access_role = cal.get('accessRole', 'unknown')
+                summary = cal.get('summary', 'Unnamed')
+                primary = " (PRIMARY)" if cal.get('primary', False) else ""
+                logging.info("  - %s%s [%s]", summary, primary, access_role)
+        except Exception as e:
+            logging.warning("Could not list calendars: %s", e)
+        
         # Get events for today and tomorrow
         now = datetime.utcnow().isoformat() + 'Z'
         tomorrow = (datetime.utcnow() + timedelta(days=2)).isoformat() + 'Z'
