@@ -205,23 +205,56 @@ def get_google_calendar_events():
         
         logging.info("Requesting events from %s to %s", now, tomorrow)
         
-        events_result = service.events().list(
-            calendarId='primary',
-            timeMin=now,
-            timeMax=tomorrow,
-            maxResults=8,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
+        # Try multiple calendar access methods
+        calendar_ids_to_try = ['primary']
+        
+        # Add specific calendar IDs from the calendar list
+        for cal in calendars:
+            cal_id = cal.get('id')
+            if cal_id and cal_id not in calendar_ids_to_try:
+                calendar_ids_to_try.append(cal_id)
+        
+        events_result = None
+        successful_calendar = None
+        
+        for cal_id in calendar_ids_to_try:
+            try:
+                logging.info("Trying calendar ID: %s", cal_id)
+                events_result = service.events().list(
+                    calendarId=cal_id,
+                    timeMin=now,
+                    timeMax=tomorrow,
+                    maxResults=8,
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+                
+                events = events_result.get('items', [])
+                logging.info("Calendar %s returned %d events", cal_id, len(events))
+                
+                if events:  # If we found events, use this calendar
+                    successful_calendar = cal_id
+                    break
+                    
+            except Exception as e:
+                logging.warning("Failed to access calendar %s: %s", cal_id, e)
+                continue
+        
+        if not events_result:
+            return {"events": [], "error": "Could not access any calendars"}
         
         events = events_result.get('items', [])
-        logging.info("Raw API response: %d events found", len(events))
+        logging.info("Using calendar: %s (found %d events)", successful_calendar or 'primary', len(events))
         
         event_list = []
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
             summary = event.get('summary', 'No title')
             time_display = format_time_for_display(start)
+            
+            # Debug: log event details
+            logging.info("Event: '%s' at %s (raw: %s)", summary, time_display, start)
+            
             event_list.append({
                 "time": time_display,
                 "title": summary,
