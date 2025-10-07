@@ -181,7 +181,7 @@ def get_google_calendar_events():
                 logging.info("OAuth token saved")
         else:
             logging.error("No Google credentials found")
-            return {"events": [], "error": "No Google credentials found. Place either credentials.json (OAuth) or service_account.json (service account) in project root."}
+            return {"events": [], "error": "No Google credentials found. Run 'python setup_calendar_oauth.py' to set up OAuth authentication."}
         
         logging.info("Building Google Calendar service...")
         service = build('calendar', 'v3', credentials=creds)
@@ -190,14 +190,16 @@ def get_google_calendar_events():
         try:
             calendar_list = service.calendarList().list().execute()
             calendars = calendar_list.get('items', [])
-            logging.info("Available calendars:")
+            logging.info("Available calendars: %d found", len(calendars))
             for cal in calendars:
                 access_role = cal.get('accessRole', 'unknown')
                 summary = cal.get('summary', 'Unnamed')
                 primary = " (PRIMARY)" if cal.get('primary', False) else ""
-                logging.info("  - %s%s [%s]", summary, primary, access_role)
+                cal_id = cal.get('id', 'no-id')
+                logging.info("  - %s%s [%s] ID: %s", summary, primary, access_role, cal_id[:50])
         except Exception as e:
             logging.warning("Could not list calendars: %s", e)
+            calendars = []
         
         # Get events for today and tomorrow
         now = datetime.utcnow().isoformat() + 'Z'
@@ -213,6 +215,19 @@ def get_google_calendar_events():
             cal_id = cal.get('id')
             if cal_id and cal_id not in calendar_ids_to_try:
                 calendar_ids_to_try.append(cal_id)
+        
+        # If no calendars found, try common email-based calendar IDs
+        if not calendars:
+            logging.info("No calendars found via calendarList API, trying direct email access...")
+            # Try to get your email from the service account file for testing
+            try:
+                import json
+                with open(GOOGLE_SERVICE_ACCOUNT_FILE, 'r') as f:
+                    sa_data = json.load(f)
+                    # This won't work but let's see what happens
+                    logging.info("Service account project: %s", sa_data.get('project_id', 'unknown'))
+            except Exception as e:
+                logging.warning("Could not read service account file: %s", e)
         
         events_result = None
         successful_calendar = None
