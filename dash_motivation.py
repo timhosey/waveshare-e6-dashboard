@@ -19,7 +19,7 @@ import random
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
-from sakura import add_to_canvas as sakura_add
+# Sakura integration removed for full screen usage
 
 # Attempt to import Google Calendar API (optional)
 try:
@@ -457,17 +457,7 @@ def compose_motivation_dashboard():
     else:
         comment = f"Sakura: Free day! Time to learn '{japanese_data['word']}' and chase your dreams! Nyaa~ ✨"
     
-    sakura_add(
-        canvas,
-        text=comment,
-        main=None,
-        temp=None,
-        units="metric",
-        override="auto",  # Let Sakura pick outfit based on mood
-        position="bottom-right",
-        target_h=160,
-        bubble_max_w=380,
-    )
+    # Sakura integration removed - using full screen space
     
     return canvas
 

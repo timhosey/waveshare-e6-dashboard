@@ -18,7 +18,7 @@ from io import BytesIO
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
-from sakura import add_to_canvas as sakura_add
+# Sakura integration removed for full screen usage
 
 os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
 
@@ -367,17 +367,7 @@ def compose_recipe_dashboard():
     else:
         comment = f"Sakura: Ready for an adventure? This {cook_time} recipe will be worth the effort! 💪"
     
-    sakura_add(
-        canvas,
-        text=comment,
-        main=None,
-        temp=None,
-        units="metric",
-        override="cooking",  # Force cooking outfit
-        position="bottom-right",
-        target_h=160,
-        bubble_max_w=380,
-    )
+    # Sakura integration removed - using full screen space
     
     return canvas
 

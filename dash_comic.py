@@ -16,7 +16,7 @@ from io import BytesIO
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
-from sakura import add_to_canvas as sakura_add
+# Sakura integration removed for full screen usage
 
 # Attempt to import comics wrapper; if not available we'll fallback to scraping
 try:
@@ -182,7 +182,7 @@ def compose_dashboard(strip_img: Image.Image, comment: str = None):
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     # Resize strip to fit width (800) while preserving aspect ratio
     sw, sh = strip_img.size
-    scale = min(WIDTH / sw, (HEIGHT - 80) / sh)  # leave some space for bubble/mascot
+    scale = min(WIDTH / sw, HEIGHT / sh)  # use full screen height
     nw, nh = int(sw * scale), int(sh * scale)
     strip_resized = strip_img.resize((nw, nh), Image.LANCZOS)
     # Paste centered horizontally, top-aligned with small margin
@@ -192,19 +192,7 @@ def compose_dashboard(strip_img: Image.Image, comment: str = None):
 
     draw = ImageDraw.Draw(canvas)
 
-    # Sakura sprite + wrapped speech bubble via shared module
-    text = comment or "Sakura: What a funny Calvin & Hobbes day! Nyaa~"
-    sakura_add(
-        canvas,
-        text=text,
-        main=None,           # not weather-based here
-        temp=None,
-        units="metric",
-        override=SAKURA_OVERRIDE,
-        position="bottom-right",
-        target_h=180,
-        bubble_max_w=360,
-    )
+    # Sakura integration removed - using full screen space
 
     return canvas
 

@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 from PIL import Image, ImageDraw, ImageFont
-from sakura import add_to_canvas as sakura_add
+# Sakura integration removed for full screen usage
 import time
 import json
 import requests
@@ -287,11 +287,11 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     if isinstance(feels, (int, float)):
         draw.text((tx, cur_y + 72), f"Feels {round(feels)}{units_sym}", font=FONT_INFO_SM, fill=(60, 60, 80))
 
-    # Forecast cards (next 3 days)
-    card_w = 200
-    gap = 12
+    # Forecast cards (next 4 days) - expanded with full screen space
+    card_w = 180
+    gap = 15
     start_x = 20
-    start_y = 200
+    start_y = 180
     # Pastel outline colors per condition (subtle, e-ink friendly)
     pastel = {
         "sun":      (255, 210, 90),   # warm yellow
@@ -302,7 +302,7 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
         "mist":     (210, 210, 230),  # very soft gray
         "thunder":  (240, 180, 120),  # muted amber
     }
-    for i, day in enumerate(daily[1:4], start=0):
+    for i, day in enumerate(daily[1:5], start=0):  # Show next 4 days instead of 3
         x = start_x + i * (card_w + gap)
         y = start_y
         dt = datetime.fromtimestamp(day.get("dt", time.time()))
@@ -326,19 +326,7 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
         if isinstance(tmin, (int, float)):
             draw.text((x + 80, y + 80), f"{round(tmin)}{units_sym}", font=FONT_INFO_SM, fill=(90, 90, 110))
 
-    # Sakura sprite + wrapped speech bubble via shared module
-    comment = sakura_comment(main, temp, desc)
-    sakura_add(
-        canvas,
-        text=comment,
-        main=main,
-        temp=temp,
-        units=OWM_UNITS,
-        override=SAKURA_EMOTE,
-        position="bottom-right",
-        target_h=180,
-        bubble_max_w=420,
-    )
+    # Sakura integration removed - using full screen space
 
     return canvas
 
