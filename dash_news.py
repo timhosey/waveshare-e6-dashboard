@@ -249,110 +249,95 @@ def sakura_comment(category: str, article_count: int) -> str:
             return "Sakura: Tech news is calm today~ perfect for coding! 💻"
 
 def compose_news_dashboard(data: Dict) -> Image.Image:
-    """Create the news dashboard with gaming and tech sections."""
+    """Create the news dashboard with two simple boxes for gaming and tech headlines."""
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     draw = ImageDraw.Draw(canvas)
     
     # Header
     now = datetime.now()
     header = f"News Update • {now.strftime('%a %b %d, %H:%M')}"
-    draw.text((20, 15), header, font=FONT_HEADER, fill=(20, 20, 40))
+    draw.text((20, 20), header, font=FONT_HEADER, fill=(20, 20, 40))
     
-    # Draw separator line
-    draw.line([(20, 55), (WIDTH-20, 55)], fill=(200, 200, 220), width=2)
+    # Calculate layout - leave space for Sakura in bottom-right
+    sakura_space = 200  # Reserve space for Sakura
+    content_width = WIDTH - 40
+    content_height = HEIGHT - 80 - sakura_space  # 80 for header, sakura_space for Sakura
     
-    y_pos = 70
-    section_gap = 20
+    # Two boxes side by side
+    box_width = (content_width - 20) // 2  # 20px gap between boxes
+    box_height = content_height
     
-    # Gaming News Section
+    y_start = 70
+    
+    # Gaming News Box (left)
+    gaming_box_x = 20
+    gaming_box_y = y_start
+    draw.rounded_rectangle(
+        [(gaming_box_x, gaming_box_y), (gaming_box_x + box_width, gaming_box_y + box_height)],
+        radius=15,
+        outline=(180, 140, 200),
+        width=3,
+        fill=(250, 240, 255)
+    )
+    
+    # Gaming header
+    draw.text((gaming_box_x + 15, gaming_box_y + 15), "🎮 Gaming", font=FONT_HEADER, fill=(80, 40, 120))
+    
+    # Gaming articles
     gaming_articles = data.get('gaming', [])
-    draw.text((20, y_pos), "🎮 Gaming News", font=FONT_HEADER, fill=(80, 40, 120))
-    y_pos += 40
-    
     if gaming_articles:
-        for i, article in enumerate(gaming_articles[:2]):  # Show top 2 gaming articles
-            # Article card background
-            card_y = y_pos
-            card_height = 100
-            card_width = WIDTH - 40
-            draw.rounded_rectangle(
-                [(20, card_y), (WIDTH-20, card_y + card_height)], 
-                radius=12, 
-                outline=(200, 180, 220), 
-                width=2, 
-                fill=(250, 245, 255)
-            )
-            
-            # Title with proper wrapping
-            title_lines = wrap_text_to_width(article['title'], FONT_TITLE, card_width - 20, draw)
-            title_y = card_y + 8
-            for line in title_lines[:2]:  # Max 2 lines for title
-                draw.text((30, title_y), line, font=FONT_TITLE, fill=(60, 20, 100))
-                title_y += 22
+        for i, article in enumerate(gaming_articles[:2]):  # Top 2 articles
+            article_y = gaming_box_y + 60 + (i * 80)
+            if article_y + 70 > gaming_box_y + box_height - 20:
+                break
+                
+            # Article title with wrapping
+            title_lines = wrap_text_to_width(article['title'], FONT_TITLE, box_width - 30, draw)
+            title_y = article_y
+            for line in title_lines[:3]:  # Max 3 lines for title
+                draw.text((gaming_box_x + 15, title_y), line, font=FONT_TITLE, fill=(60, 20, 100))
+                title_y += 20
             
             # Source
-            source = f"via {article['source']}"
-            draw.text((30, title_y), source, font=FONT_SOURCE, fill=(100, 60, 140))
-            
-            # Summary with proper wrapping (if space allows)
-            summary_y = title_y + 20
-            if article['summary'] and summary_y < card_y + card_height - 15:
-                summary_lines = wrap_text_to_width(article['summary'], FONT_SUMMARY, card_width - 20, draw)
-                for line in summary_lines[:2]:  # Max 2 lines for summary
-                    if summary_y + 16 < card_y + card_height - 5:
-                        draw.text((30, summary_y), line, font=FONT_SUMMARY, fill=(80, 80, 100))
-                        summary_y += 16
-            
-            y_pos += card_height + 10
+            source = article['source']
+            draw.text((gaming_box_x + 15, title_y + 5), f"• {source}", font=FONT_SOURCE, fill=(100, 60, 140))
     else:
-        draw.text((30, y_pos), "No gaming news available", font=FONT_TITLE, fill=(120, 120, 140))
-        y_pos += 60
+        draw.text((gaming_box_x + 15, gaming_box_y + 60), "No gaming news", font=FONT_TITLE, fill=(120, 120, 140))
     
-    y_pos += section_gap
+    # Tech News Box (right)
+    tech_box_x = gaming_box_x + box_width + 20
+    tech_box_y = y_start
+    draw.rounded_rectangle(
+        [(tech_box_x, tech_box_y), (tech_box_x + box_width, tech_box_y + box_height)],
+        radius=15,
+        outline=(140, 180, 220),
+        width=3,
+        fill=(240, 250, 255)
+    )
     
-    # Tech News Section  
+    # Tech header
+    draw.text((tech_box_x + 15, tech_box_y + 15), "💻 Tech", font=FONT_HEADER, fill=(40, 80, 120))
+    
+    # Tech articles
     tech_articles = data.get('tech', [])
-    draw.text((20, y_pos), "💻 Tech News", font=FONT_HEADER, fill=(40, 80, 120))
-    y_pos += 40
-    
     if tech_articles:
-        for i, article in enumerate(tech_articles[:2]):  # Show top 2 tech articles
-            # Article card background
-            card_y = y_pos
-            card_height = 100
-            card_width = WIDTH - 40
-            draw.rounded_rectangle(
-                [(20, card_y), (WIDTH-20, card_y + card_height)], 
-                radius=12, 
-                outline=(180, 200, 220), 
-                width=2, 
-                fill=(245, 250, 255)
-            )
-            
-            # Title with proper wrapping
-            title_lines = wrap_text_to_width(article['title'], FONT_TITLE, card_width - 20, draw)
-            title_y = card_y + 8
-            for line in title_lines[:2]:  # Max 2 lines for title
-                draw.text((30, title_y), line, font=FONT_TITLE, fill=(20, 60, 100))
-                title_y += 22
+        for i, article in enumerate(tech_articles[:2]):  # Top 2 articles
+            article_y = tech_box_y + 60 + (i * 80)
+            if article_y + 70 > tech_box_y + box_height - 20:
+                break
+                
+            # Article title with wrapping
+            title_lines = wrap_text_to_width(article['title'], FONT_TITLE, box_width - 30, draw)
+            title_y = article_y
+            for line in title_lines[:3]:  # Max 3 lines for title
+                draw.text((tech_box_x + 15, title_y), line, font=FONT_TITLE, fill=(20, 60, 100))
+                title_y += 20
             
             # Source
-            source = f"via {article['source']}"
-            draw.text((30, title_y), source, font=FONT_SOURCE, fill=(60, 100, 140))
-            
-            # Summary with proper wrapping (if space allows)
-            summary_y = title_y + 20
-            if article['summary'] and summary_y < card_y + card_height - 15:
-                summary_lines = wrap_text_to_width(article['summary'], FONT_SUMMARY, card_width - 20, draw)
-                for line in summary_lines[:2]:  # Max 2 lines for summary
-                    if summary_y + 16 < card_y + card_height - 5:
-                        draw.text((30, summary_y), line, font=FONT_SUMMARY, fill=(80, 80, 100))
-                        summary_y += 16
-            
-            y_pos += card_height + 10
+            source = article['source']
+            draw.text((tech_box_x + 15, title_y + 5), f"• {source}", font=FONT_SOURCE, fill=(60, 100, 140))
     else:
-        draw.text((30, y_pos), "No tech news available", font=FONT_TITLE, fill=(120, 120, 140))
-        y_pos += 60
+        draw.text((tech_box_x + 15, tech_box_y + 60), "No tech news", font=FONT_TITLE, fill=(120, 120, 140))
     
     # Sakura integration - determine which category has more news
     total_gaming = len(data.get('gaming', []))
