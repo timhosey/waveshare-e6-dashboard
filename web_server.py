@@ -44,7 +44,7 @@ DEBUG_MODE = os.environ.get("WEB_DEBUG", "false").lower() == "true"
 
 # Cache for dashboard images
 IMAGE_CACHE_DIR = Path("web_cache")
-IMAGE_CACHE_DIR.mkdir(exist_ok=True)
+IMAGE_CACHE_DIR.mkdir(exist_ok=True, mode=0o755)
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -446,7 +446,16 @@ def get_dashboard(dashboard_name):
         
         # Save to cache
         cache_path = IMAGE_CACHE_DIR / f"{dashboard_name}.png"
-        img.save(cache_path)
+        try:
+            img.save(cache_path)
+        except PermissionError:
+            app.logger.warning("Permission denied saving cache to %s, trying alternative location", cache_path)
+            # Try saving to a temp location in the current directory
+            cache_path = Path(f"web_cache_{dashboard_name}.png")
+            img.save(cache_path)
+        except Exception as e:
+            app.logger.error("Failed to save cache: %s", e)
+            # Continue without caching
         
         return jsonify({
             "success": True,
@@ -462,16 +471,26 @@ def get_dashboard(dashboard_name):
 @app.route('/api/image/<dashboard_name>')
 def get_dashboard_image(dashboard_name):
     """Serve dashboard image."""
+    # Try primary cache location first
     cache_path = IMAGE_CACHE_DIR / f"{dashboard_name}.png"
     if cache_path.exists():
         return send_file(cache_path, mimetype='image/png')
+    
+    # Try fallback cache location
+    fallback_path = Path(f"web_cache_{dashboard_name}.png")
+    if fallback_path.exists():
+        return send_file(fallback_path, mimetype='image/png')
+    
+    # Generate if not cached
+    get_dashboard(dashboard_name)
+    
+    # Check both locations after generation
+    if cache_path.exists():
+        return send_file(cache_path, mimetype='image/png')
+    elif fallback_path.exists():
+        return send_file(fallback_path, mimetype='image/png')
     else:
-        # Generate if not cached
-        get_dashboard(dashboard_name)
-        if cache_path.exists():
-            return send_file(cache_path, mimetype='image/png')
-        else:
-            return "Image not found", 404
+        return "Image not found", 404
 
 @app.route('/api/archives')
 def get_archives():
@@ -523,8 +542,17 @@ def get_status():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+def ensure_cache_directory():
+    """Ensure the cache directory exists with proper permissions."""
+    try:
+        IMAGE_CACHE_DIR.mkdir(exist_ok=True, mode=0o755)
+        app.logger.info("Cache directory ready: %s", IMAGE_CACHE_DIR)
+    except Exception as e:
+        app.logger.error("Failed to create cache directory: %s", e)
+
 def start_web_server():
     """Start the web server in a separate thread."""
+    ensure_cache_directory()
     app.logger.info("Starting web server on %s:%d", WEB_HOST, WEB_PORT)
     app.run(host=WEB_HOST, port=WEB_PORT, debug=DEBUG_MODE, use_reloader=False, threaded=True)
 
