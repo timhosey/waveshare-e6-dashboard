@@ -56,6 +56,7 @@ CACHE_TTL = timedelta(hours=1)  # Cache for 1 hour
 
 # Google Calendar settings
 GOOGLE_CREDENTIALS_FILE = "credentials.json"
+GOOGLE_SERVICE_ACCOUNT_FILE = "service_account.json"
 GOOGLE_TOKEN_FILE = "token.json"
 GOOGLE_SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
@@ -141,22 +142,36 @@ def get_google_calendar_events():
     if not GOOGLE_CALENDAR_AVAILABLE:
         return {"events": [], "error": "Google Calendar API not available"}
     
-    if not os.path.exists(GOOGLE_CREDENTIALS_FILE):
-        return {"events": [], "error": "Google credentials.json not found"}
-    
     try:
         creds = None
-        if os.path.exists(GOOGLE_TOKEN_FILE):
-            creds = Credentials.from_authorized_user_file(GOOGLE_TOKEN_FILE, GOOGLE_SCOPES)
         
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, GOOGLE_SCOPES)
-                creds = flow.run_local_server(port=0)
-            with open(GOOGLE_TOKEN_FILE, 'w') as token:
-                token.write(creds.to_json())
+        # Try service account first (for headless servers)
+        if os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
+            logging.info("Using service account authentication...")
+            from google.oauth2 import service_account
+            creds = service_account.Credentials.from_service_account_file(
+                GOOGLE_SERVICE_ACCOUNT_FILE, scopes=GOOGLE_SCOPES)
+        
+        # Fall back to OAuth flow (for interactive use)
+        elif os.path.exists(GOOGLE_CREDENTIALS_FILE):
+            logging.info("Using OAuth authentication...")
+            if os.path.exists(GOOGLE_TOKEN_FILE):
+                creds = Credentials.from_authorized_user_file(GOOGLE_TOKEN_FILE, GOOGLE_SCOPES)
+            
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    # Check if we're in a headless environment
+                    if os.environ.get('DISPLAY') is None and os.environ.get('SSH_TTY'):
+                        return {"events": [], "error": "Headless environment detected. Use service account authentication instead of OAuth."}
+                    
+                    flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, GOOGLE_SCOPES)
+                    creds = flow.run_local_server(port=0)
+                with open(GOOGLE_TOKEN_FILE, 'w') as token:
+                    token.write(creds.to_json())
+        else:
+            return {"events": [], "error": "No Google credentials found. Place either credentials.json (OAuth) or service_account.json (service account) in project root."}
         
         service = build('calendar', 'v3', credentials=creds)
         
