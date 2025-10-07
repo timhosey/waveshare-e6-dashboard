@@ -51,7 +51,7 @@ def setup_oauth():
     
     # Get the authorization URL
     auth_url, _ = flow.authorization_url(prompt='consent')
-    print(auth_url)
+    print(auth_url.strip())  # Remove any extra whitespace/symbols
     print("-" * 60)
     
     print("\nStep 2: After authorizing, you'll get a code. Paste it here:")
