@@ -27,8 +27,12 @@ def create_token_from_code(auth_code):
         return False
     
     try:
-        # Create flow
-        flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, GOOGLE_SCOPES)
+        # Create flow with proper redirect URI for desktop apps
+        flow = InstalledAppFlow.from_client_secrets_file(
+            GOOGLE_CREDENTIALS_FILE, 
+            GOOGLE_SCOPES,
+            redirect_uri='urn:ietf:wg:oauth:2.0:oob'
+        )
         
         # Exchange code for token
         flow.fetch_token(code=auth_code)

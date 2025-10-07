@@ -38,8 +38,12 @@ def setup_oauth():
     
     print("Setting up OAuth authentication...")
     
-    # Create flow
-    flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, GOOGLE_SCOPES)
+    # Create flow with proper redirect URI for desktop apps
+    flow = InstalledAppFlow.from_client_secrets_file(
+        GOOGLE_CREDENTIALS_FILE, 
+        GOOGLE_SCOPES,
+        redirect_uri='urn:ietf:wg:oauth:2.0:oob'  # For desktop apps
+    )
     
     # For headless setup, we'll generate a URL
     print("\n" + "="*60)
