@@ -2,8 +2,15 @@
 
 To enable Google Calendar integration in your motivation dashboard, you have two options:
 
-## Option A: Service Account (Recommended for Headless Servers)
+## Option A: Service Account (Recommended for Headless Servers) ✅
 ## Option B: OAuth (For Interactive Use)
+
+**Quick Setup Summary:**
+1. Create Google Cloud project and enable Calendar API
+2. Create service account and download `service_account.json`
+3. Share your calendar with the service account email
+4. Set `GOOGLE_CALENDAR_EMAIL=your-email@gmail.com` in your `.env` file
+5. Test with `python dash_motivation.py --clear-cache`
 
 Choose the method that fits your setup:
 
@@ -24,7 +31,7 @@ Choose the method that fits your setup:
 
 ---
 
-## Option A: Service Account Setup (Headless Servers)
+## Option A: Service Account Setup (Headless Servers) - RECOMMENDED
 
 ### 3A. Create Service Account
 
@@ -44,14 +51,37 @@ Choose the method that fits your setup:
 5. Click "Create"
 6. **Save the downloaded file as `service_account.json` in your project root**
 
-### 5A. Share Calendar with Service Account
+### 5A. Configure Calendar Access
 
+**Method 1: Share Your Personal Calendar (Simplest)**
 1. Open Google Calendar in your browser
 2. Go to your calendar settings (gear icon → Settings)
 3. Click on your calendar → "Share with specific people"
 4. Add the service account email (found in `service_account.json` as `client_email`)
 5. Give it "See all event details" permission
 6. Click "Send"
+
+**Method 2: Create a Shared Calendar (Recommended)**
+1. In Google Calendar, click the "+" next to "Other calendars"
+2. Choose "Create new calendar"
+3. Name it "Dashboard Events" or similar
+4. Click "Create calendar"
+5. Go to "Settings and sharing" for the new calendar
+6. Under "Share with specific people", add the service account email
+7. Give it "Make changes to events" permission
+8. Add test events to this calendar
+
+### 6A. Configure Your Email
+
+1. **Set your Google email in your `.env` file:**
+   ```
+   GOOGLE_CALENDAR_EMAIL=your-email@gmail.com
+   ```
+
+2. **Or set it as an environment variable:**
+   ```bash
+   export GOOGLE_CALENDAR_EMAIL="your-email@gmail.com"
+   ```
 
 ---
 
@@ -94,6 +124,8 @@ When you first run the motivation dashboard:
 - **"service_account.json not found"**: Make sure the file is in your project root
 - **"Access denied"**: Verify you've shared your calendar with the service account email
 - **"Invalid credentials"**: Check that the service account key is valid and not expired
+- **"0 calendars found"**: Set `GOOGLE_CALENDAR_EMAIL` environment variable to your Google email
+- **"No events showing"**: Make sure you have events in the shared calendar and `GOOGLE_CALENDAR_EMAIL` is set correctly
 
 ### OAuth Issues
 - **"credentials.json not found"**: Make sure the file is in your project root

@@ -216,16 +216,15 @@ def get_google_calendar_events():
             if cal_id and cal_id not in calendar_ids_to_try:
                 calendar_ids_to_try.append(cal_id)
         
-        # If no calendars found, try to access by email (if you know your Google email)
+        # If no calendars found, try to access by email
         if not calendars:
             logging.info("No calendars found via calendarList API")
-            # Try some common approaches
             user_email = os.environ.get('GOOGLE_CALENDAR_EMAIL')
             if user_email:
                 logging.info("Trying to access calendar by email: %s", user_email)
                 calendar_ids_to_try.append(user_email)
             else:
-                logging.info("Set GOOGLE_CALENDAR_EMAIL environment variable to try email-based access")
+                logging.info("Hint: Set GOOGLE_CALENDAR_EMAIL environment variable for email-based access")
         
         events_result = None
         successful_calendar = None
