@@ -73,6 +73,7 @@ SCRIPT_MAP = {
     "weather": ROOT / "dash_weather.py",
     "motivation": ROOT / "dash_motivation.py",
     "recipe": ROOT / "dash_recipe.py",
+    "news": ROOT / "dash_news.py",
 }
 
 ORDER = []
