@@ -41,7 +41,10 @@ COMIC_SLUG = "calvinandhobbes"   # GoComics slug
 STRIP_DIR = Path("strips")
 STRIP_DIR.mkdir(exist_ok=True)
 WIDTH, HEIGHT = 800, 480
-CACHE_TTL = timedelta(hours=24)  # don't re-download until cached file older than this
+CACHE_TTL = timedelta(hours=6)  # allow more frequent updates for better variety
+
+# Environment variables
+USE_RANDOM_COMICS = os.environ.get("USE_RANDOM_COMICS", "true").lower() == "true"
 
 # Sakura override (set SAKURA_EMOTE to force a specific outfit; otherwise handled in sakura.py)
 SAKURA_OVERRIDE = os.environ.get("SAKURA_EMOTE", "auto")
@@ -50,6 +53,8 @@ FONT_DIR = Path("fonts")
 
 # Dashboard/info text font
 FONT_INFO = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 28)
+FONT_TITLE = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 24)
+FONT_TEXT = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 20)
 
 HEADERS = {
     "User-Agent": "SakuraDash/1.0 (+https://example.local) - personal use"
@@ -97,34 +102,94 @@ def fetch_with_comics(date_str):
 
 
 def fetch_from_gocomics(date_str):
-    """Scrape GoComics page for the date; fragile but useful as fallback."""
+    """Scrape GoComics page for the date with improved selectors."""
     try:
         logging.info("Scraping GoComics for %s", date_str)
         url = f"https://www.gocomics.com/{COMIC_SLUG}/{date_str.replace('-', '/')}"
+        logging.info("Fetching URL: %s", url)
         r = requests.get(url, headers=HEADERS, timeout=15)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
-        # image is usually in <picture class="item-comic-image"> <img src="...">
-        img_tag = soup.select_one("picture[itemprop='image'] img") or soup.select_one("picture img")
-        if not img_tag or not img_tag.get("src"):
-            # try meta og:image
+        
+        # Try multiple selectors for the comic image
+        img_selectors = [
+            "picture[itemprop='image'] img",
+            "picture img", 
+            ".item-comic-image img",
+            ".comic img",
+            "[data-image] img",
+            "img[alt*='Calvin']",
+            "img[alt*='Hobbes']"
+        ]
+        
+        img_tag = None
+        img_url = None
+        
+        for selector in img_selectors:
+            img_tag = soup.select_one(selector)
+            if img_tag and img_tag.get("src"):
+                img_url = img_tag["src"]
+                break
+        
+        # If no img tag found, try meta og:image
+        if not img_url:
             meta = soup.find("meta", property="og:image")
             if meta and meta.get("content"):
                 img_url = meta["content"]
-            else:
-                logging.warning("Could not find comic image on page.")
-                return None
-        else:
-            img_url = img_tag["src"]
+        
+        # If still no URL, try to find any image that looks like a comic
+        if not img_url:
+            all_imgs = soup.find_all("img")
+            for img in all_imgs:
+                src = img.get("src", "")
+                if "calvin" in src.lower() or "hobbes" in src.lower() or "comic" in src.lower():
+                    img_url = src
+                    break
+        
+        if not img_url:
+            logging.warning("Could not find comic image on page. Available images:")
+            all_imgs = soup.find_all("img")
+            for i, img in enumerate(all_imgs[:5]):  # Show first 5 images for debugging
+                logging.warning("  Image %d: %s", i, img.get("src", "no src"))
+            return None
+            
+        # Ensure we have a full URL
+        if img_url.startswith("//"):
+            img_url = "https:" + img_url
+        elif img_url.startswith("/"):
+            img_url = "https://www.gocomics.com" + img_url
+            
         logging.info("Found image URL: %s", img_url)
         r2 = requests.get(img_url, headers=HEADERS, timeout=15)
         r2.raise_for_status()
-        from io import BytesIO
+        
+        # Check if we actually got an image
+        if not r2.content:
+            logging.warning("Empty response from image URL")
+            return None
+            
         return Image.open(BytesIO(r2.content)).convert("RGB")
     except Exception as e:
         logging.warning("GoComics scrape failed: %s", e)
         return None
 
+
+def get_random_historical_date():
+    """Get a random date from Calvin and Hobbes run (1985-1995)."""
+    from datetime import datetime, timedelta
+    import random
+    
+    # Calvin and Hobbes ran from Nov 18, 1985 to Dec 31, 1995
+    start_date = datetime(1985, 11, 18)
+    end_date = datetime(1995, 12, 31)
+    
+    # Random date between start and end
+    time_between = end_date - start_date
+    days_between = time_between.days
+    random_days = random.randrange(days_between)
+    random_date = start_date + timedelta(days=random_days)
+    
+    return random_date.strftime("%Y-%m-%d")
 
 def get_strip_for_date(date_str):
     """Return a PIL.Image for the given date (cached or freshly downloaded); or None."""
@@ -154,6 +219,24 @@ def get_strip_for_date(date_str):
         return Image.open(fallback).convert("RGB")
 
     logging.error("No strip available for %s", date_str)
+    return None
+
+def get_random_strip():
+    """Get a random Calvin and Hobbes strip from the historical archive."""
+    # Try a few random historical dates
+    for attempt in range(3):
+        random_date = get_random_historical_date()
+        logging.info("Attempting random date: %s (attempt %d/3)", random_date, attempt + 1)
+        strip = get_strip_for_date(random_date)
+        if strip is not None:
+            return strip
+    
+    # If all attempts fail, use fallback archive
+    fallback = pick_random_archive()
+    if fallback:
+        logging.info("Using fallback archived strip: %s", fallback)
+        return Image.open(fallback).convert("RGB")
+    
     return None
 
 
@@ -228,32 +311,41 @@ def display_on_epd(img: Image.Image):
 
 def compose_dashboard_no_display():
     """Create the comic dashboard image without displaying it on e-ink."""
-    date_str = today_str()
-    strip = get_strip_for_date(date_str)
+    strip = get_random_strip()
     if strip is None:
         # Return a placeholder image if no strip available
         canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
         draw = ImageDraw.Draw(canvas)
         # Add colorful header even for error case
-        header = "Calvin & Hobbes Daily Strip"
+        header = "Calvin & Hobbes Archive"
         draw.text((20, 10), header, font=FONT_TITLE, fill=(220, 100, 40))  # Orange header
-        draw.text((20, 50), "No comic strip available for today", font=FONT_TEXT, fill=(180, 60, 40))  # Red for error
+        draw.text((20, 50), "No comic strip available", font=FONT_TEXT, fill=(180, 60, 40))  # Red for error
         return canvas
     
-    comment = f"Sakura: Here's today's strip — enjoy, Tim! ({date_str})"
+    comment = f"Random Calvin & Hobbes strip from the archive"
     return compose_dashboard(strip, comment=comment)
 
 # === Main ===
 def main():
-    date_str = today_str()
-    logging.info("Requested date: %s", date_str)
-    strip = get_strip_for_date(date_str)
+    if USE_RANDOM_COMICS:
+        # Use random historical strips for variety since Calvin and Hobbes ended in 1995
+        logging.info("Fetching random Calvin and Hobbes strip...")
+        strip = get_random_strip()
+        comment = f"Random Calvin & Hobbes strip from the archive"
+    else:
+        # Use today's date (will fall back to random if no comic for today)
+        date_str = today_str()
+        logging.info("Fetching comic for date: %s", date_str)
+        strip = get_strip_for_date(date_str)
+        if strip is None:
+            logging.info("No comic for today, trying random...")
+            strip = get_random_strip()
+        comment = f"Calvin & Hobbes for {date_str}"
+    
     if strip is None:
         logging.error("No strip available; exiting.")
         sys.exit(1)
 
-    # create a small comment based on date or a canned line (you can extend this)
-    comment = f"Sakura: Here's today's strip — enjoy, Tim! ({date_str})"
     dash_img = compose_dashboard(strip, comment=comment)
     display_on_epd(dash_img)
 
