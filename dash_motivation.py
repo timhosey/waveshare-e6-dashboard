@@ -39,10 +39,8 @@ EPD_LIB = "./lib"
 if os.path.exists(EPD_LIB):
     sys.path.append(EPD_LIB)
 
-try:
-    from waveshare_epd import epd7in3e as epd_driver
-except ImportError:
-    epd_driver = None
+# EPD driver will be imported lazily when needed for display
+epd_driver = None
 
 # === Config ===
 WIDTH, HEIGHT = 800, 480
@@ -477,10 +475,16 @@ def compose_motivation_dashboard():
 
 def display_on_epd(img: Image.Image):
     """Display on e-ink or save preview."""
+    global epd_driver
+    
+    # Import EPD driver lazily only when we actually need to display
     if epd_driver is None:
-        logging.warning("Waveshare EPD driver not available — saving preview to out_motivation.png")
-        img.save("out_motivation.png")
-        return
+        try:
+            from waveshare_epd import epd7in3e as epd_driver
+        except ImportError:
+            logging.warning("Waveshare EPD driver not available — saving preview to out_motivation.png")
+            img.save("out_motivation.png")
+            return
     
     epd = epd_driver.EPD()
     epd.init()

@@ -37,13 +37,8 @@ EPD_LIB = "./lib"
 if os.path.exists(EPD_LIB):
     sys.path.append(EPD_LIB)
 
+# EPD driver will be imported lazily when needed for display
 epd_driver = None
-try:
-    from waveshare_epd import epd7in3e as _epd_driver
-    epd_driver = _epd_driver
-    logging.info("[dash_weather] Waveshare EPD driver loaded")
-except Exception as e:
-    logging.warning("[dash_weather] EPD driver unavailable (%s). Will save preview PNG instead.", e)
 
 # Basic constants (define if not already defined elsewhere)
 if 'WIDTH' not in globals():
@@ -348,10 +343,18 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     return canvas
 
 def display_on_epd(img: Image.Image):
+    global epd_driver
+    
+    # Import EPD driver lazily only when we actually need to display
     if epd_driver is None:
-        logging.warning("[dash_weather] No EPD driver; saving preview to out_weather.png")
-        img.save("out_weather.png")
-        return
+        try:
+            from waveshare_epd import epd7in3e as epd_driver
+            logging.info("[dash_weather] Waveshare EPD driver loaded")
+        except Exception as e:
+            logging.warning("[dash_weather] EPD driver unavailable (%s) — saving preview to out_weather.png", e)
+            img.save("out_weather.png")
+            return
+    
     try:
         epd = epd_driver.EPD()
         epd.init()

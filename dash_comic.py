@@ -32,7 +32,9 @@ os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
 EPD_LIB = "./lib"
 if os.path.exists(EPD_LIB):
     sys.path.append(EPD_LIB)
-from waveshare_epd import epd7in3e as epd_driver
+
+# EPD driver will be imported lazily when needed for display
+epd_driver = None
 
 # === Config ===
 COMIC_SLUG = "calvinandhobbes"   # GoComics slug
@@ -210,10 +212,16 @@ def compose_dashboard(strip_img: Image.Image, comment: str = None):
 # === EPD display ===
 def display_on_epd(img: Image.Image):
     """Init device, display once, and sleep. If driver not present, save locally."""
+    global epd_driver
+    
+    # Import EPD driver lazily only when we actually need to display
     if epd_driver is None:
-        logging.warning("Waveshare EPD driver not available — saving preview to out_preview.png")
-        img.save("out_preview.png")
-        return
+        try:
+            from waveshare_epd import epd7in3e as epd_driver
+        except ImportError:
+            logging.warning("Waveshare EPD driver not available — saving preview to out_preview.png")
+            img.save("out_preview.png")
+            return
 
     epd = epd_driver.EPD()
     epd.init()
