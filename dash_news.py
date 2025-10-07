@@ -2,7 +2,6 @@ import logging
 import os
 import sys
 from PIL import Image, ImageDraw, ImageFont
-from sakura import add_to_canvas as sakura_add
 import time
 import json
 import requests
@@ -61,9 +60,7 @@ HEADERS = {"User-Agent": "SakuraNews/1.0 (personal use)"}
 NEWS_CACHE_TTL_MIN = int(os.environ.get("NEWS_CACHE_TTL_MIN", "30"))
 CACHE_TTL = timedelta(minutes=NEWS_CACHE_TTL_MIN)
 
-# Sakura configuration
-SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "auto")
-SAKURA_DIR = Path("img/sakura")
+# No Sakura integration
 
 def load_cache(path: Path, ttl: timedelta) -> dict | None:
     """Load cached news data if it's still fresh."""
@@ -215,41 +212,10 @@ def fetch_all_news() -> Dict:
         'timestamp': datetime.now().isoformat()
     }
 
-def pick_sakura_outfit(category: str, article_count: int) -> str:
-    """Choose Sakura outfit based on news category and activity."""
-    if SAKURA_EMOTE and SAKURA_EMOTE.lower() != 'auto':
-        return f"sakura_{SAKURA_EMOTE.lower()}.png"
-    
-    if category == "gaming":
-        if article_count >= 5:
-            return "sakura_excited.png"  # Lots of gaming news!
-        else:
-            return "sakura_gaming.png"
-    else:  # tech
-        if article_count >= 5:
-            return "sakura_tech.png"  # Tech enthusiast mode
-        else:
-            return "sakura_sunny.png"  # Default tech mode
-
-def sakura_comment(category: str, article_count: int) -> str:
-    """Generate Sakura's comment based on news category."""
-    if category == "gaming":
-        if article_count >= 5:
-            return "Sakura: So many gaming updates! Ready to play? 🎮✨"
-        elif article_count >= 3:
-            return "Sakura: Gaming news is exciting today! 🎮"
-        else:
-            return "Sakura: Quiet gaming day~ maybe time for a marathon? 🎮"
-    else:  # tech
-        if article_count >= 5:
-            return "Sakura: Tech world is buzzing today! So many updates! 💻⚡"
-        elif article_count >= 3:
-            return "Sakura: Interesting tech developments~ 💻"
-        else:
-            return "Sakura: Tech news is calm today~ perfect for coding! 💻"
+# Sakura functions removed - using full screen space instead
 
 def compose_news_dashboard(data: Dict) -> Image.Image:
-    """Create the news dashboard with two simple boxes for gaming and tech headlines."""
+    """Create the news dashboard with two boxes for gaming and tech headlines."""
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     draw = ImageDraw.Draw(canvas)
     
@@ -258,10 +224,9 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
     header = f"News Update • {now.strftime('%a %b %d, %H:%M')}"
     draw.text((20, 20), header, font=FONT_HEADER, fill=(20, 20, 40))
     
-    # Calculate layout - leave space for Sakura in bottom-right
-    sakura_space = 200  # Reserve space for Sakura
+    # Use full screen space - no Sakura reservation
     content_width = WIDTH - 40
-    content_height = HEIGHT - 80 - sakura_space  # 80 for header, sakura_space for Sakura
+    content_height = HEIGHT - 80  # Just header space
     
     # Two boxes side by side
     box_width = (content_width - 20) // 2  # 20px gap between boxes
@@ -286,9 +251,9 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
     # Gaming articles
     gaming_articles = data.get('gaming', [])
     if gaming_articles:
-        for i, article in enumerate(gaming_articles[:2]):  # Top 2 articles
-            article_y = gaming_box_y + 60 + (i * 80)
-            if article_y + 70 > gaming_box_y + box_height - 20:
+        for i, article in enumerate(gaming_articles[:4]):  # Show up to 4 articles
+            article_y = gaming_box_y + 60 + (i * 85)
+            if article_y + 80 > gaming_box_y + box_height - 20:
                 break
                 
             # Article title with wrapping
@@ -321,9 +286,9 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
     # Tech articles
     tech_articles = data.get('tech', [])
     if tech_articles:
-        for i, article in enumerate(tech_articles[:2]):  # Top 2 articles
-            article_y = tech_box_y + 60 + (i * 80)
-            if article_y + 70 > tech_box_y + box_height - 20:
+        for i, article in enumerate(tech_articles[:4]):  # Show up to 4 articles
+            article_y = tech_box_y + 60 + (i * 85)
+            if article_y + 80 > tech_box_y + box_height - 20:
                 break
                 
             # Article title with wrapping
@@ -338,32 +303,6 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
             draw.text((tech_box_x + 15, title_y + 5), f"• {source}", font=FONT_SOURCE, fill=(60, 100, 140))
     else:
         draw.text((tech_box_x + 15, tech_box_y + 60), "No tech news", font=FONT_TITLE, fill=(120, 120, 140))
-    
-    # Sakura integration - determine which category has more news
-    total_gaming = len(data.get('gaming', []))
-    total_tech = len(data.get('tech', []))
-    
-    if total_gaming >= total_tech:
-        category = "gaming"
-        article_count = total_gaming
-    else:
-        category = "tech" 
-        article_count = total_tech
-    
-    comment = sakura_comment(category, article_count)
-    outfit = pick_sakura_outfit(category, article_count)
-    
-    sakura_add(
-        canvas,
-        text=comment,
-        main=category.title(),
-        temp=None,  # No temperature for news
-        units=None,  # No units for news
-        override=outfit.replace('.png', '').replace('sakura_', ''),
-        position="bottom-right",
-        target_h=160,
-        bubble_max_w=380,
-    )
     
     return canvas
 
