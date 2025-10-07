@@ -32,11 +32,11 @@ RSS_FEEDS = {
         "https://feeds.feedburner.com/RockPaperShotgun",
     ],
     "tech": [
-        "https://feeds.feedburner.com/oreilly/radar/",
         "https://www.theverge.com/rss/index.xml",
         "https://feeds.arstechnica.com/arstechnica/index/",
         "https://techcrunch.com/feed/",
         "https://www.wired.com/feed/rss",
+        "https://feeds.feedburner.com/thenextweb",
     ]
 }
 
@@ -120,6 +120,24 @@ def clean_html(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def wrap_text_to_width(text, font, max_width, draw):
+    """Wrap text into lines that fit within max_width using the provided draw+font."""
+    words = text.split()
+    if not words:
+        return [""]
+    lines = []
+    cur = words[0]
+    for w in words[1:]:
+        test = cur + " " + w
+        bbox = draw.textbbox((0, 0), test, font=font)
+        if bbox[2] - bbox[0] <= max_width:
+            cur = test
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
+
 def truncate_text(text: str, max_length: int) -> str:
     """Truncate text to max_length and add ellipsis if needed."""
     if len(text) <= max_length:
@@ -159,6 +177,8 @@ def fetch_rss_feed(url: str) -> List[Dict]:
                 source = "TechCrunch"
             elif 'wired' in url.lower():
                 source = "Wired"
+            elif 'thenextweb' in url.lower():
+                source = "The Next Web"
             
             if title:
                 articles.append({
@@ -250,10 +270,11 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
     y_pos += 40
     
     if gaming_articles:
-        for i, article in enumerate(gaming_articles[:3]):  # Show top 3 gaming articles
+        for i, article in enumerate(gaming_articles[:2]):  # Show top 2 gaming articles
             # Article card background
             card_y = y_pos
-            card_height = 80
+            card_height = 100
+            card_width = WIDTH - 40
             draw.rounded_rectangle(
                 [(20, card_y), (WIDTH-20, card_y + card_height)], 
                 radius=12, 
@@ -262,18 +283,25 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
                 fill=(250, 245, 255)
             )
             
-            # Title
-            title = truncate_text(article['title'], 80)
-            draw.text((30, card_y + 10), title, font=FONT_TITLE, fill=(60, 20, 100))
+            # Title with proper wrapping
+            title_lines = wrap_text_to_width(article['title'], FONT_TITLE, card_width - 20, draw)
+            title_y = card_y + 8
+            for line in title_lines[:2]:  # Max 2 lines for title
+                draw.text((30, title_y), line, font=FONT_TITLE, fill=(60, 20, 100))
+                title_y += 22
             
             # Source
             source = f"via {article['source']}"
-            draw.text((30, card_y + 35), source, font=FONT_SOURCE, fill=(100, 60, 140))
+            draw.text((30, title_y), source, font=FONT_SOURCE, fill=(100, 60, 140))
             
-            # Summary (if space allows)
-            if article['summary']:
-                summary = truncate_text(article['summary'], 120)
-                draw.text((30, card_y + 55), summary, font=FONT_SUMMARY, fill=(80, 80, 100))
+            # Summary with proper wrapping (if space allows)
+            summary_y = title_y + 20
+            if article['summary'] and summary_y < card_y + card_height - 15:
+                summary_lines = wrap_text_to_width(article['summary'], FONT_SUMMARY, card_width - 20, draw)
+                for line in summary_lines[:2]:  # Max 2 lines for summary
+                    if summary_y + 16 < card_y + card_height - 5:
+                        draw.text((30, summary_y), line, font=FONT_SUMMARY, fill=(80, 80, 100))
+                        summary_y += 16
             
             y_pos += card_height + 10
     else:
@@ -288,10 +316,11 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
     y_pos += 40
     
     if tech_articles:
-        for i, article in enumerate(tech_articles[:3]):  # Show top 3 tech articles
+        for i, article in enumerate(tech_articles[:2]):  # Show top 2 tech articles
             # Article card background
             card_y = y_pos
-            card_height = 80
+            card_height = 100
+            card_width = WIDTH - 40
             draw.rounded_rectangle(
                 [(20, card_y), (WIDTH-20, card_y + card_height)], 
                 radius=12, 
@@ -300,18 +329,25 @@ def compose_news_dashboard(data: Dict) -> Image.Image:
                 fill=(245, 250, 255)
             )
             
-            # Title
-            title = truncate_text(article['title'], 80)
-            draw.text((30, card_y + 10), title, font=FONT_TITLE, fill=(20, 60, 100))
+            # Title with proper wrapping
+            title_lines = wrap_text_to_width(article['title'], FONT_TITLE, card_width - 20, draw)
+            title_y = card_y + 8
+            for line in title_lines[:2]:  # Max 2 lines for title
+                draw.text((30, title_y), line, font=FONT_TITLE, fill=(20, 60, 100))
+                title_y += 22
             
             # Source
             source = f"via {article['source']}"
-            draw.text((30, card_y + 35), source, font=FONT_SOURCE, fill=(60, 100, 140))
+            draw.text((30, title_y), source, font=FONT_SOURCE, fill=(60, 100, 140))
             
-            # Summary (if space allows)
-            if article['summary']:
-                summary = truncate_text(article['summary'], 120)
-                draw.text((30, card_y + 55), summary, font=FONT_SUMMARY, fill=(80, 80, 100))
+            # Summary with proper wrapping (if space allows)
+            summary_y = title_y + 20
+            if article['summary'] and summary_y < card_y + card_height - 15:
+                summary_lines = wrap_text_to_width(article['summary'], FONT_SUMMARY, card_width - 20, draw)
+                for line in summary_lines[:2]:  # Max 2 lines for summary
+                    if summary_y + 16 < card_y + card_height - 5:
+                        draw.text((30, summary_y), line, font=FONT_SUMMARY, fill=(80, 80, 100))
+                        summary_y += 16
             
             y_pos += card_height + 10
     else:
