@@ -411,19 +411,18 @@ def compose_motivation_dashboard():
             time_text = f"{event['time']}"
             title_text = event['title']
             
-            # Measure time text width to avoid overlap
-            time_bbox = draw.textbbox((0, 0), time_text, font=FONT_TEXT)
-            time_width = time_bbox[2] - time_bbox[0]
-            title_start_x = cal_x + time_width + 15  # 15px padding
+            # Fixed-width column for time (consistent alignment)
+            TIME_COLUMN_WIDTH = 90  # Fixed width for time column
+            title_start_x = cal_x + TIME_COLUMN_WIDTH + 10  # 10px padding
             
-            # Calculate available width for title
-            max_title_width = (cal_x + 380) - title_start_x - 10  # 10px margin from right edge
+            # Truncate title to fit remaining space
+            max_title_chars = 25  # Conservative for e-ink readability
+            if len(title_text) > max_title_chars:
+                title_text = title_text[:max_title_chars-3] + "..."
             
-            # Truncate title if it would overflow
-            if len(title_text) > 20:  # Conservative truncation for e-ink
-                title_text = title_text[:17] + "..."
-            
+            # Draw time (left-aligned in its column)
             draw.text((cal_x, y_offset), time_text, font=FONT_TEXT, fill=(0, 100, 200))
+            # Draw title (left-aligned after time column)
             draw.text((title_start_x, y_offset), title_text, font=FONT_TEXT, fill=(40, 40, 60))
             
             y_offset += 25
