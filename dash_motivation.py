@@ -1,355 +1,211 @@
 #!/usr/bin/env python3
 """
-dash_motivation.py
-- Shows Google Calendar events for today and tomorrow
-- Displays daily Japanese word/phrase with pronunciation and meaning
-- Features Sakura-chan with motivation-themed commentary
+dash_motivation.py — Japanese Dashboard
+- Word of the day (kanji + reading + meaning) from API with fallback
+- Phrase of the day (Japanese + romaji + meaning) rotated daily
+- Current Tokyo time and weather conditions
 - Renders into 800x480 for Waveshare E6 (epd7in3e)
 """
 
 import os
 import sys
-import time
 import json
 import logging
-from datetime import datetime, timedelta, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
-from io import BytesIO
-import random
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
-# Sakura integration removed for full screen usage
 
-# Attempt to import Google Calendar API (optional)
-try:
-    from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from googleapiclient.discovery import build
-    GOOGLE_CALENDAR_AVAILABLE = True
-except ImportError:
-    GOOGLE_CALENDAR_AVAILABLE = False
-    logging.warning("Google Calendar API not available. Install with: pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client")
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv(usecwd=True))
 
 os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
 
-# Waveshare driver path (adjust if your lib is elsewhere)
 EPD_LIB = "./lib"
 if os.path.exists(EPD_LIB):
     sys.path.append(EPD_LIB)
 
-# EPD driver will be imported lazily when needed for display
 epd_driver = None
 
-# === Config ===
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+# Tokyo timezone — zoneinfo is stdlib since Python 3.9; fall back to fixed offset
+try:
+    from zoneinfo import ZoneInfo
+    TOKYO_TZ = ZoneInfo("Asia/Tokyo")
+except ImportError:
+    from datetime import timezone
+    TOKYO_TZ = timezone(timedelta(hours=9))
+
 WIDTH, HEIGHT = 800, 480
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# Cache files
-CALENDAR_CACHE = CACHE_DIR / "calendar.json"
-JAPANESE_CACHE = CACHE_DIR / "japanese.json"
-CACHE_TTL = timedelta(minutes=5)  # Cache for 5 minutes (for testing)
+WORD_CACHE       = CACHE_DIR / "japanese_word.json"
+WEATHER_CACHE    = CACHE_DIR / "tokyo_weather.json"
+WORD_CACHE_TTL   = timedelta(hours=24)
+WEATHER_CACHE_TTL = timedelta(minutes=30)
 
-# Google Calendar settings
-GOOGLE_CREDENTIALS_FILE = "credentials.json"
-GOOGLE_SERVICE_ACCOUNT_FILE = "service_account.json"
-GOOGLE_TOKEN_FILE = "token.json"
-GOOGLE_SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-
-# Japanese word API
+OWM_API_KEY = os.getenv("OWM_API_KEY")
+TOKYO_LAT, TOKYO_LON = "35.6762", "139.6503"
 JAPANESE_API_URL = "https://jwotd.mary.codes/api/v1/word"
-JAPANESE_FALLBACK_WORDS = [
-    {"word": "希望", "reading": "きぼう (kibou)", "meaning": "hope"},
-    {"word": "努力", "reading": "どりょく (doryoku)", "meaning": "effort"},
-    {"word": "勇気", "reading": "ゆうき (yuuki)", "meaning": "courage"},
-    {"word": "笑顔", "reading": "えがお (egao)", "meaning": "smile"},
-    {"word": "平和", "reading": "へいわ (heiwa)", "meaning": "peace"},
-    {"word": "友達", "reading": "ともだち (tomodachi)", "meaning": "friend"},
-    {"word": "夢", "reading": "ゆめ (yume)", "meaning": "dream"},
-    {"word": "愛", "reading": "あい (ai)", "meaning": "love"},
-]
+HEADERS = {"User-Agent": "JapaneseDashboard/1.0 (personal use)"}
 
-# Fonts
+# ── Fonts ──────────────────────────────────────────────────────────────────────
 FONT_DIR = Path("fonts")
 try:
-    FONT_TITLE = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 24)
-    FONT_TEXT = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 18)
-    FONT_SMALL = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 14)
-    FONT_JAPANESE = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 20)
+    FONT_HEADER = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 26)
+    FONT_KANJI  = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 56)
+    FONT_PHRASE = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 30)
+    FONT_TEXT   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 20)
+    FONT_SMALL  = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 16)
+    FONT_TIME   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 48)
 except Exception as e:
     logging.warning("Font loading failed (%s); using defaults", e)
-    FONT_TITLE = FONT_TEXT = FONT_SMALL = FONT_JAPANESE = ImageFont.load_default()
+    FONT_HEADER = FONT_KANJI = FONT_PHRASE = FONT_TEXT = FONT_SMALL = FONT_TIME = ImageFont.load_default()
 
-HEADERS = {
-    "User-Agent": "SakuraMotivation/1.0 (personal dashboard)"
-}
+# ── Phrase list (rotates daily via day ordinal) ────────────────────────────────
+DAILY_PHRASES = [
+    {"japanese": "よろしくお願いします",     "romaji": "Yoroshiku onegaishimasu",       "meaning": "Please treat me well / Nice to meet you"},
+    {"japanese": "お疲れ様でした",           "romaji": "Otsukaresama deshita",          "meaning": "Thank you for your hard work"},
+    {"japanese": "いただきます",             "romaji": "Itadakimasu",                   "meaning": "I humbly receive (said before eating)"},
+    {"japanese": "ご馳走様でした",           "romaji": "Gochisousama deshita",          "meaning": "Thank you for the meal (said after eating)"},
+    {"japanese": "すみません",               "romaji": "Sumimasen",                     "meaning": "Excuse me / I'm sorry to bother you"},
+    {"japanese": "大丈夫ですか？",           "romaji": "Daijoubu desu ka?",             "meaning": "Are you alright?"},
+    {"japanese": "もう一度お願いします",     "romaji": "Mou ichido onegaishimasu",      "meaning": "Please say that one more time"},
+    {"japanese": "どこですか？",             "romaji": "Doko desu ka?",                 "meaning": "Where is it?"},
+    {"japanese": "いくらですか？",           "romaji": "Ikura desu ka?",                "meaning": "How much does it cost?"},
+    {"japanese": "ありがとうございます",     "romaji": "Arigatou gozaimasu",            "meaning": "Thank you very much"},
+    {"japanese": "お元気ですか？",           "romaji": "Ogenki desu ka?",               "meaning": "How are you?"},
+    {"japanese": "日本語が少し話せます",     "romaji": "Nihongo ga sukoshi hanasemasu", "meaning": "I can speak a little Japanese"},
+    {"japanese": "わかりません",             "romaji": "Wakarimasen",                   "meaning": "I don't understand"},
+    {"japanese": "頑張ってください",         "romaji": "Ganbatte kudasai",              "meaning": "Please do your best / Good luck"},
+    {"japanese": "お先に失礼します",         "romaji": "Osaki ni shitsurei shimasu",    "meaning": "Excuse me for leaving before you"},
+    {"japanese": "行ってきます",             "romaji": "Ittekimasu",                    "meaning": "I'm heading out (said when leaving home)"},
+    {"japanese": "お帰りなさい",             "romaji": "Okaeri nasai",                  "meaning": "Welcome home"},
+    {"japanese": "気をつけてください",       "romaji": "Ki wo tsukete kudasai",         "meaning": "Please take care / Be careful"},
+    {"japanese": "少々お待ちください",       "romaji": "Shoushou omachi kudasai",       "meaning": "Please wait just a moment"},
+    {"japanese": "今日はいい天気ですね",     "romaji": "Kyou wa ii tenki desu ne",      "meaning": "The weather is nice today, isn't it?"},
+    {"japanese": "失礼しました",             "romaji": "Shitsurei shimashita",          "meaning": "Excuse me / I'm sorry for the trouble"},
+    {"japanese": "おめでとうございます",     "romaji": "Omedetou gozaimasu",            "meaning": "Congratulations"},
+    {"japanese": "お誕生日おめでとう",       "romaji": "Otanjoubi omedetou",            "meaning": "Happy birthday"},
+    {"japanese": "また明日",                 "romaji": "Mata ashita",                   "meaning": "See you tomorrow"},
+    {"japanese": "どうしましたか？",         "romaji": "Dou shimashita ka?",            "meaning": "What's wrong? / What happened?"},
+    {"japanese": "手伝いましょうか？",       "romaji": "Tetsudaimashou ka?",            "meaning": "Shall I help you?"},
+    {"japanese": "楽しんでください",         "romaji": "Tanoshinde kudasai",            "meaning": "Please enjoy yourself"},
+    {"japanese": "どうぞよろしく",           "romaji": "Douzo yoroshiku",               "meaning": "Pleased to meet you (casual)"},
+]
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+FALLBACK_WORDS = [
+    {"word": "希望", "reading": "きぼう (kibou)",       "meaning": "hope"},
+    {"word": "努力", "reading": "どりょく (doryoku)",   "meaning": "effort"},
+    {"word": "勇気", "reading": "ゆうき (yuuki)",       "meaning": "courage"},
+    {"word": "笑顔", "reading": "えがお (egao)",        "meaning": "smile"},
+    {"word": "平和", "reading": "へいわ (heiwa)",       "meaning": "peace"},
+    {"word": "友達", "reading": "ともだち (tomodachi)", "meaning": "friend"},
+    {"word": "夢",   "reading": "ゆめ (yume)",          "meaning": "dream"},
+    {"word": "愛",   "reading": "あい (ai)",            "meaning": "love"},
+    {"word": "桜",   "reading": "さくら (sakura)",      "meaning": "cherry blossom"},
+    {"word": "旅",   "reading": "たび (tabi)",          "meaning": "journey / travel"},
+    {"word": "空",   "reading": "そら (sora)",          "meaning": "sky"},
+    {"word": "光",   "reading": "ひかり (hikari)",      "meaning": "light"},
+    {"word": "風",   "reading": "かぜ (kaze)",          "meaning": "wind"},
+    {"word": "星",   "reading": "ほし (hoshi)",         "meaning": "star"},
+]
 
-# === Helper Functions ===
+# ── Cache helpers ──────────────────────────────────────────────────────────────
 
 def load_cache(path: Path, ttl: timedelta) -> dict | None:
-    """Load cached data if it's still fresh."""
     try:
         if not path.exists():
             return None
-        raw = path.read_text()
-        data = json.loads(raw)
-        ts = data.get("_ts")
-        if ts is None:
-            return None
-        age = datetime.now().timestamp() - float(ts)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        age = datetime.now().timestamp() - float(data.get("_ts", 0))
         if age <= ttl.total_seconds():
-            logging.info("Using cached data from %s (age: %.0fs)", path.name, age)
             return data
-        else:
-            logging.info("Cache stale for %s (age: %.0fs > %.0fs)", path.name, age, ttl.total_seconds())
+        logging.info("Cache stale: %s (%.0fs old)", path.name, age)
     except Exception as e:
-        logging.warning("Failed to load cache %s: %s", path.name, e)
+        logging.warning("Cache read failed %s: %s", path.name, e)
     return None
 
 def save_cache(path: Path, payload: dict) -> None:
-    """Save data to cache with timestamp."""
     try:
-        payload = dict(payload)
-        payload["_ts"] = datetime.now().timestamp()
-        path.write_text(json.dumps(payload, indent=2))
-        logging.info("Cached data to %s", path.name)
+        out = dict(payload)
+        out["_ts"] = datetime.now().timestamp()
+        path.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
     except Exception as e:
-        logging.warning("Failed to save cache %s: %s", path.name, e)
+        logging.warning("Cache write failed %s: %s", path.name, e)
 
-def format_time_for_display(dt_str: str) -> str:
-    """Format datetime string for display."""
+# ── Data fetchers ──────────────────────────────────────────────────────────────
+
+def get_daily_phrase() -> dict:
+    """Pick today's phrase deterministically so it stays stable all day."""
+    return DAILY_PHRASES[date.today().toordinal() % len(DAILY_PHRASES)]
+
+def get_japanese_word() -> dict:
+    cached = load_cache(WORD_CACHE, WORD_CACHE_TTL)
+    if cached:
+        return cached
     try:
-        # Handle both date and datetime formats
-        if 'T' in dt_str:
-            dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
-            return dt.strftime("%H:%M")
-        else:
-            dt = datetime.fromisoformat(dt_str)
-            return dt.strftime("%a %m/%d")
-    except Exception:
-        return dt_str
-
-# === Google Calendar Integration ===
-
-def get_google_calendar_events():
-    """Fetch events from Google Calendar API."""
-    logging.info("Starting Google Calendar API call...")
-    
-    if not GOOGLE_CALENDAR_AVAILABLE:
-        logging.error("Google Calendar API not available - missing dependencies")
-        return {"events": [], "error": "Google Calendar API not available"}
-    
-    try:
-        creds = None
-        
-        # Try service account first (for headless servers)
-        if os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
-            logging.info("Found service_account.json - using service account authentication")
-            from google.oauth2 import service_account
-            creds = service_account.Credentials.from_service_account_file(
-                GOOGLE_SERVICE_ACCOUNT_FILE, scopes=GOOGLE_SCOPES)
-            logging.info("Service account credentials loaded successfully")
-        
-        # Fall back to OAuth flow (for interactive use)
-        elif os.path.exists(GOOGLE_CREDENTIALS_FILE):
-            logging.info("Found credentials.json - using OAuth authentication")
-            if os.path.exists(GOOGLE_TOKEN_FILE):
-                logging.info("Found existing token.json")
-                creds = Credentials.from_authorized_user_file(GOOGLE_TOKEN_FILE, GOOGLE_SCOPES)
-            
-            if not creds or not creds.valid:
-                if creds and creds.expired and creds.refresh_token:
-                    logging.info("Refreshing expired OAuth token")
-                    creds.refresh(Request())
-                else:
-                    # Check if we're in a headless environment
-                    if os.environ.get('DISPLAY') is None and os.environ.get('SSH_TTY'):
-                        logging.error("Headless environment detected - OAuth requires browser")
-                        return {"events": [], "error": "Headless environment detected. Use service account authentication instead of OAuth."}
-                    
-                    logging.info("Starting OAuth flow...")
-                    flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, GOOGLE_SCOPES)
-                    creds = flow.run_local_server(port=0)
-                with open(GOOGLE_TOKEN_FILE, 'w') as token:
-                    token.write(creds.to_json())
-                logging.info("OAuth token saved")
-        else:
-            logging.error("No Google credentials found")
-            return {"events": [], "error": "No Google credentials found. Run 'python setup_calendar_oauth.py' to set up OAuth authentication."}
-        
-        logging.info("Building Google Calendar service...")
-        service = build('calendar', 'v3', credentials=creds)
-        
-        # Debug: List available calendars
-        try:
-            calendar_list = service.calendarList().list().execute()
-            calendars = calendar_list.get('items', [])
-            logging.info("Available calendars: %d found", len(calendars))
-            for cal in calendars:
-                access_role = cal.get('accessRole', 'unknown')
-                summary = cal.get('summary', 'Unnamed')
-                primary = " (PRIMARY)" if cal.get('primary', False) else ""
-                cal_id = cal.get('id', 'no-id')
-                logging.info("  - %s%s [%s] ID: %s", summary, primary, access_role, cal_id[:50])
-        except Exception as e:
-            logging.warning("Could not list calendars: %s", e)
-            calendars = []
-        
-        # Get events for today and tomorrow
-        now = datetime.utcnow().isoformat() + 'Z'
-        tomorrow = (datetime.utcnow() + timedelta(days=2)).isoformat() + 'Z'
-        
-        logging.info("Requesting events from %s to %s", now, tomorrow)
-        
-        # Try multiple calendar access methods
-        calendar_ids_to_try = ['primary']
-        
-        # Add specific calendar IDs from the calendar list
-        for cal in calendars:
-            cal_id = cal.get('id')
-            if cal_id and cal_id not in calendar_ids_to_try:
-                calendar_ids_to_try.append(cal_id)
-        
-        # If no calendars found, try to access by email
-        if not calendars:
-            logging.info("No calendars found via calendarList API")
-            user_email = os.environ.get('GOOGLE_CALENDAR_EMAIL')
-            if user_email:
-                logging.info("Trying to access calendar by email: %s", user_email)
-                calendar_ids_to_try.append(user_email)
-            else:
-                logging.info("Hint: Set GOOGLE_CALENDAR_EMAIL environment variable for email-based access")
-        
-        events_result = None
-        successful_calendar = None
-        
-        for cal_id in calendar_ids_to_try:
-            try:
-                logging.info("Trying calendar ID: %s", cal_id)
-                events_result = service.events().list(
-                    calendarId=cal_id,
-                    timeMin=now,
-                    timeMax=tomorrow,
-                    maxResults=8,
-                    singleEvents=True,
-                    orderBy='startTime'
-                ).execute()
-                
-                events = events_result.get('items', [])
-                logging.info("Calendar %s returned %d events", cal_id, len(events))
-                
-                if events:  # If we found events, use this calendar
-                    successful_calendar = cal_id
-                    break
-                    
-            except Exception as e:
-                logging.warning("Failed to access calendar %s: %s", cal_id, e)
-                continue
-        
-        if not events_result:
-            return {"events": [], "error": "Could not access any calendars"}
-        
-        events = events_result.get('items', [])
-        logging.info("Using calendar: %s (found %d events)", successful_calendar or 'primary', len(events))
-        
-        event_list = []
-        for event in events:
-            start = event['start'].get('dateTime', event['start'].get('date'))
-            summary = event.get('summary', 'No title')
-            time_display = format_time_for_display(start)
-            
-            # Debug: log event details
-            logging.info("Event: '%s' at %s (raw: %s)", summary, time_display, start)
-            
-            event_list.append({
-                "time": time_display,
-                "title": summary,
-                "start": start
-            })
-        
-        return {"events": event_list, "error": None}
-        
-    except Exception as e:
-        logging.error("Google Calendar error: %s", e)
-        return {"events": [], "error": str(e)}
-
-# === Japanese Word Integration ===
-
-def get_japanese_word():
-    """Fetch daily Japanese word from API or use fallback."""
-    try:
-        response = requests.get(JAPANESE_API_URL, headers=HEADERS, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                "word": data.get("word", "N/A"),
+        r = requests.get(JAPANESE_API_URL, headers=HEADERS, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            word_data = {
+                "word":    data.get("word", "N/A"),
                 "reading": data.get("reading", "N/A"),
                 "meaning": data.get("meaning", "N/A"),
-                "source": "api"
             }
+            save_cache(WORD_CACHE, word_data)
+            logging.info("Japanese word fetched from API: %s", word_data["word"])
+            return word_data
     except Exception as e:
-        logging.warning("Japanese API failed: %s", e)
-    
-    # Fallback to random word from our list
-    word_data = random.choice(JAPANESE_FALLBACK_WORDS)
-    word_data["source"] = "fallback"
-    return word_data
+        logging.warning("Japanese word API failed: %s", e)
+    fallback = dict(FALLBACK_WORDS[date.today().toordinal() % len(FALLBACK_WORDS)])
+    logging.info("Using fallback word: %s", fallback["word"])
+    return fallback
 
-# === Data Fetching with Caching ===
-
-def get_calendar_data():
-    """Get calendar events with caching."""
-    logging.info("Getting calendar data...")
-    
-    cached = load_cache(CALENDAR_CACHE, CACHE_TTL)
-    if cached is not None:
-        logging.info("Using cached calendar data")
+def get_tokyo_weather() -> dict | None:
+    cached = load_cache(WEATHER_CACHE, WEATHER_CACHE_TTL)
+    if cached:
         return cached
-    
-    logging.info("Fetching fresh calendar data from Google Calendar API...")
-    data = get_google_calendar_events()
-    
-    # Log the results for debugging
-    if data.get("error"):
-        logging.error("Calendar API error: %s", data["error"])
-    else:
-        event_count = len(data.get("events", []))
-        logging.info("Calendar API success: %d events retrieved", event_count)
-        if event_count > 0:
-            for i, event in enumerate(data["events"][:3]):  # Log first 3 events
-                logging.info("Event %d: %s - %s", i+1, event["time"], event["title"])
-    
-    save_cache(CALENDAR_CACHE, data)
-    return data
+    if not OWM_API_KEY:
+        logging.warning("OWM_API_KEY not set — Tokyo weather unavailable")
+        return None
+    try:
+        r = requests.get(
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={"lat": TOKYO_LAT, "lon": TOKYO_LON,
+                    "appid": OWM_API_KEY, "units": "metric"},
+            headers=HEADERS,
+            timeout=10,
+        )
+        r.raise_for_status()
+        d = r.json()
+        result = {
+            "temp":        round(d["main"]["temp"]),
+            "feels_like":  round(d["main"]["feels_like"]),
+            "description": d["weather"][0]["description"].title(),
+            "main":        d["weather"][0]["main"],
+            "humidity":    d["main"]["humidity"],
+        }
+        save_cache(WEATHER_CACHE, result)
+        logging.info("Tokyo weather fetched: %s %d°C", result["description"], result["temp"])
+        return result
+    except Exception as e:
+        logging.warning("Tokyo weather fetch failed: %s", e)
+        return None
 
-def get_japanese_data():
-    """Get Japanese word with caching."""
-    cached = load_cache(JAPANESE_CACHE, timedelta(hours=24))  # Daily cache for Japanese word
-    if cached is not None:
-        return cached
-    
-    logging.info("Fetching fresh Japanese word...")
-    data = get_japanese_word()
-    save_cache(JAPANESE_CACHE, data)
-    return data
+# ── Layout helpers ─────────────────────────────────────────────────────────────
 
-# === Layout Functions ===
-
-def wrap_text_to_width(text, font, max_width, draw):
-    """Wrap text into lines that fit within max_width."""
+def wrap_text(text: str, font, max_width: int, draw) -> list[str]:
     words = text.split()
     if not words:
         return [""]
-    lines = []
-    cur = words[0]
+    lines, cur = [], words[0]
     for w in words[1:]:
         test = cur + " " + w
-        bbox = draw.textbbox((0, 0), test, font=font)
-        if bbox[2] - bbox[0] <= max_width:
+        if draw.textbbox((0, 0), test, font=font)[2] <= max_width:
             cur = test
         else:
             lines.append(cur)
@@ -357,138 +213,166 @@ def wrap_text_to_width(text, font, max_width, draw):
     lines.append(cur)
     return lines
 
-# === Dashboard Composition ===
+def weather_symbol(main: str) -> str:
+    m = (main or "").lower()
+    if "thunder" in m: return "Thunderstorm"
+    if "drizzle" in m: return "Drizzle"
+    if "rain" in m:    return "Rain"
+    if "snow" in m:    return "Snow"
+    if "mist" in m or "fog" in m: return "Mist"
+    if "cloud" in m:   return "Cloudy"
+    return "Clear"
 
-def compose_motivation_dashboard():
-    """Create the motivation dashboard image."""
+# ── Dashboard composition ──────────────────────────────────────────────────────
+
+def compose_japanese_dashboard() -> Image.Image:
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     draw = ImageDraw.Draw(canvas)
-    
-    # Get data
-    calendar_data = get_calendar_data()
-    japanese_data = get_japanese_data()
-    
-    # Header
-    today = date.today()
-    header = f"Motivation Dashboard • {today.strftime('%A, %B %d')}"
-    draw.text((20, 20), header, font=FONT_TITLE, fill=(160, 80, 160))  # Purple for header
-    
-    # Calendar Section (left side)
-    cal_x = 20
-    cal_y = 70  # Moved up to align with Japanese box
-    
-    # Japanese Word Section (top-right) - aligned with calendar
-    jp_x = 420
-    jp_y = cal_y  # Same Y position as calendar
-    jp_width = 360
-    
-    # Calendar background with colorful border
-    draw.rounded_rectangle([cal_x - 10, cal_y - 10, cal_x + 380, cal_y + 280], 
-                          radius=12, outline=(120, 160, 200), width=3, fill=(255, 255, 255))  # Blue border
-    
-    # Japanese word background with colorful border
-    draw.rounded_rectangle([jp_x - 10, jp_y - 10, jp_x + jp_width, jp_y + 120], 
-                          radius=12, outline=(160, 120, 200), width=3, fill=(255, 255, 255))  # Purple border
-    
-    draw.text((cal_x, cal_y), "Upcoming Events", font=FONT_TITLE, fill=(60, 140, 180))  # Blue for calendar header
-    
-    events = calendar_data.get("events", [])
-    if not events:
-        if calendar_data.get("error"):
-            error_msg = f"Calendar error: {calendar_data['error'][:30]}..."
-            draw.text((cal_x, cal_y + 30), error_msg, font=FONT_SMALL, fill=(200, 100, 100))
-        else:
-            draw.text((cal_x, cal_y + 30), "No upcoming events", font=FONT_TEXT, fill=(120, 120, 140))
+
+    word_data     = get_japanese_word()
+    phrase_data   = get_daily_phrase()
+    tokyo_weather = get_tokyo_weather()
+    tokyo_now     = datetime.now(TOKYO_TZ)
+
+    PAD = 16
+
+    # ── Header bar ────────────────────────────────────────────────────────
+    draw.text((PAD, 12), "Japanese Dashboard", font=FONT_HEADER, fill=(160, 50, 110))
+    date_str = datetime.now().strftime("%A, %B %d")
+    date_w = draw.textbbox((0, 0), date_str, font=FONT_SMALL)[2]
+    draw.text((WIDTH - date_w - PAD, 16), date_str, font=FONT_SMALL, fill=(100, 100, 130))
+    draw.line([(0, 46), (WIDTH, 46)], fill=(210, 180, 220), width=2)
+
+    # ── Zone definitions ──────────────────────────────────────────────────
+    # Left column  (word of the day):  x 0–390
+    # Right column (Tokyo time/weather): x 406–800
+    # Bottom strip (phrase of the day): full width, y 295–480
+    TOP_Y     = 56
+    PHRASE_Y  = 292
+    COL_SPLIT = 390
+    RIGHT_X   = 406
+
+    # ── Word of the Day (left column) ─────────────────────────────────────
+    draw.rounded_rectangle(
+        [PAD - 4, TOP_Y - 4, COL_SPLIT - 4, PHRASE_Y - 8],
+        radius=14, outline=(180, 100, 200), width=3,
+    )
+
+    wy = TOP_Y + 6
+    draw.text((PAD + 6, wy), "Word of the Day", font=FONT_SMALL, fill=(130, 60, 170))
+    wy += 24
+
+    # Large kanji
+    draw.text((PAD + 6, wy), word_data["word"], font=FONT_KANJI, fill=(180, 35, 75))
+    wy += 66
+
+    # Reading (hiragana + romaji)
+    reading = word_data.get("reading", "")
+    draw.text((PAD + 6, wy), reading, font=FONT_TEXT, fill=(55, 100, 170))
+    wy += 28
+
+    # Meaning
+    meaning = word_data.get("meaning", "")
+    for line in wrap_text(f'"{meaning}"', FONT_TEXT, COL_SPLIT - PAD - 18, draw)[:2]:
+        draw.text((PAD + 6, wy), line, font=FONT_TEXT, fill=(70, 70, 90))
+        wy += 24
+
+    # ── Tokyo Time & Weather (right column) ───────────────────────────────
+    draw.rounded_rectangle(
+        [RIGHT_X - 4, TOP_Y - 4, WIDTH - PAD + 4, PHRASE_Y - 8],
+        radius=14, outline=(80, 140, 210), width=3,
+    )
+
+    ry = TOP_Y + 6
+    draw.text((RIGHT_X + 6, ry), "Tokyo, Japan", font=FONT_SMALL, fill=(50, 100, 170))
+    ry += 24
+
+    # Time (large)
+    time_str = tokyo_now.strftime("%H:%M")
+    draw.text((RIGHT_X + 6, ry), time_str, font=FONT_TIME, fill=(30, 70, 150))
+    ry += 58
+
+    draw.text((RIGHT_X + 6, ry), "Japan Standard Time", font=FONT_SMALL, fill=(110, 130, 160))
+    ry += 22
+
+    # Divider
+    draw.line([(RIGHT_X + 6, ry), (WIDTH - PAD - 4, ry)], fill=(180, 200, 220), width=1)
+    ry += 8
+
+    # Weather
+    if tokyo_weather:
+        temp_line = f"{tokyo_weather['temp']}°C  •  {tokyo_weather['description']}"
+        for line in wrap_text(temp_line, FONT_TEXT, WIDTH - RIGHT_X - PAD - 10, draw)[:2]:
+            draw.text((RIGHT_X + 6, ry), line, font=FONT_TEXT, fill=(50, 100, 160))
+            ry += 24
+        draw.text(
+            (RIGHT_X + 6, ry),
+            f"Feels like {tokyo_weather['feels_like']}°C  •  {tokyo_weather['humidity']}% humidity",
+            font=FONT_SMALL, fill=(90, 115, 145),
+        )
     else:
-        y_offset = cal_y + 30
-        for i, event in enumerate(events[:6]):  # Show max 6 events
-            if y_offset > cal_y + 250:
-                break
-            
-            # Event time and title
-            time_text = f"{event['time']}"
-            title_text = event['title']
-            
-            # Fixed-width column for time (consistent alignment)
-            TIME_COLUMN_WIDTH = 90  # Fixed width for time column
-            title_start_x = cal_x + TIME_COLUMN_WIDTH + 10  # 10px padding
-            
-            # Truncate title to fit remaining space
-            max_title_chars = 25  # Conservative for e-ink readability
-            if len(title_text) > max_title_chars:
-                title_text = title_text[:max_title_chars-3] + "..."
-            
-            # Draw time (left-aligned in its column)
-            draw.text((cal_x, y_offset), time_text, font=FONT_TEXT, fill=(0, 100, 200))
-            # Draw title (left-aligned after time column)
-            draw.text((title_start_x, y_offset), title_text, font=FONT_TEXT, fill=(80, 120, 60))  # Green for event titles
-            
-            y_offset += 25
-    
-    # Japanese word text
-    draw.text((jp_x, jp_y), "Japanese Word of the Day", font=FONT_SMALL, fill=(120, 80, 160))  # Purple for header
-    draw.text((jp_x, jp_y + 20), japanese_data["word"], font=FONT_JAPANESE, fill=(180, 60, 40))  # Red for Japanese word
-    draw.text((jp_x, jp_y + 45), japanese_data["reading"], font=FONT_TEXT, fill=(60, 140, 180))  # Blue for reading
-    draw.text((jp_x, jp_y + 70), japanese_data["meaning"], font=FONT_TEXT, fill=(100, 120, 60))  # Green for meaning
-    
-    # Motivational quote section (bottom)
-    quotes = [
-        "今日も頑張りましょう！ (Let's do our best today!)",
-        "小さな進歩も進歩です (Small progress is still progress)",
-        "一歩ずつ前に進もう (Let's move forward step by step)",
-        "毎日が新しい始まり (Every day is a new beginning)",
-        "笑顔は最高の化粧 (A smile is the best makeup)",
-    ]
-    
-    quote = random.choice(quotes)
-    quote_y = 380
-    draw.text((20, quote_y), f"💫 {quote}", font=FONT_SMALL, fill=(160, 100, 60))  # Orange for motivational quote
-    
+        draw.text((RIGHT_X + 6, ry), "Weather unavailable", font=FONT_SMALL, fill=(160, 100, 100))
+
+    # ── Phrase of the Day (full-width bottom strip) ────────────────────────
+    draw.rounded_rectangle(
+        [PAD - 4, PHRASE_Y - 4, WIDTH - PAD + 4, HEIGHT - PAD + 4],
+        radius=14, outline=(60, 155, 115), width=3,
+    )
+
+    py = PHRASE_Y + 8
+    draw.text((PAD + 6, py), "Phrase of the Day", font=FONT_SMALL, fill=(35, 120, 80))
+    py += 22
+
+    # Japanese phrase text
+    draw.text((PAD + 6, py), phrase_data["japanese"], font=FONT_PHRASE, fill=(160, 35, 75))
+    py += 38
+
+    # Romaji pronunciation
+    draw.text((PAD + 6, py), phrase_data["romaji"], font=FONT_TEXT, fill=(55, 100, 170))
+    py += 26
+
+    # English meaning (wrapped)
+    for line in wrap_text(f'"{phrase_data["meaning"]}"', FONT_TEXT, WIDTH - 2 * PAD - 16, draw)[:2]:
+        draw.text((PAD + 6, py), line, font=FONT_TEXT, fill=(70, 70, 90))
+        py += 24
+
     return canvas
 
-# === EPD Display ===
+
+# ── EPD display ────────────────────────────────────────────────────────────────
 
 def display_on_epd(img: Image.Image):
-    """Display on e-ink or save preview."""
     global epd_driver
-    
-    # Import EPD driver lazily only when we actually need to display
     if epd_driver is None:
         try:
             from waveshare_epd import epd7in3e as epd_driver
         except ImportError:
-            logging.warning("Waveshare EPD driver not available — saving preview to out_motivation.png")
+            logging.warning("EPD driver unavailable — saving preview to out_motivation.png")
             img.save("out_motivation.png")
             return
-    
     epd = epd_driver.EPD()
     epd.init()
-    logging.info("Displaying motivation dashboard on EPD...")
+    logging.info("Displaying Japanese dashboard on EPD…")
     epd.display(epd.getbuffer(img))
     epd.sleep()
-    logging.info("Done. EPD in sleep.")
+    logging.info("Done. EPD sleeping.")
 
-def compose_motivation_dashboard_no_display():
-    """Create the motivation dashboard image without displaying it on e-ink."""
-    return compose_motivation_dashboard()
+def compose_motivation_dashboard_no_display() -> Image.Image:
+    """Web server hook — name kept for compatibility."""
+    return compose_japanese_dashboard()
 
-# === Main ===
+
+# ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
-    # Check for debug flag to clear cache
     if "--clear-cache" in sys.argv:
-        logging.info("Clearing calendar cache...")
-        if CALENDAR_CACHE.exists():
-            CALENDAR_CACHE.unlink()
-            logging.info("Calendar cache cleared")
-        if JAPANESE_CACHE.exists():
-            JAPANESE_CACHE.unlink()
-            logging.info("Japanese cache cleared")
-    
-    logging.info("Creating motivation dashboard...")
-    dash_img = compose_motivation_dashboard()
-    display_on_epd(dash_img)
-    logging.info("Motivation dashboard complete!")
+        for p in [WORD_CACHE, WEATHER_CACHE]:
+            if p.exists():
+                p.unlink()
+                logging.info("Cleared cache: %s", p)
+    logging.info("Creating Japanese dashboard…")
+    display_on_epd(compose_japanese_dashboard())
+    logging.info("Done!")
 
 if __name__ == "__main__":
     main()

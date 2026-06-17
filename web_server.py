@@ -191,7 +191,7 @@ HTML_TEMPLATE = """
         <div class="nav">
             <button onclick="loadDashboard('comic')">📚 Comic</button>
             <button onclick="loadDashboard('weather')">🌤️ Weather</button>
-            <button onclick="loadDashboard('motivation')">📅 Motivation</button>
+            <button onclick="loadDashboard('motivation')">🇯🇵 Japanese</button>
             <button onclick="loadDashboard('news')">📰 News</button>
             <button onclick="loadArchives()">📁 Archives</button>
             <button onclick="loadStatus()">📊 Status</button>
@@ -433,7 +433,7 @@ def get_dashboard(dashboard_name):
             name = "Weather"
         elif dashboard_name == 'motivation':
             dashboard_func = compose_motivation_web
-            name = "Motivation"
+            name = "Japanese"
         elif dashboard_name == 'news':
             from dash_news import compose_news_dashboard, get_news
             dashboard_func = lambda: compose_news_dashboard(get_news())

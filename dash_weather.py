@@ -1,14 +1,15 @@
 import logging
 import os
 import sys
-from PIL import Image, ImageDraw, ImageFont
-# Sakura integration removed for full screen usage
 import time
 import json
 import requests
+from collections import defaultdict, Counter
 from datetime import datetime, timedelta
 from pathlib import Path
-from io import BytesIO
+
+from PIL import Image, ImageDraw, ImageFont
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logging.info("[dash_weather] starting up…")
 
@@ -17,14 +18,12 @@ dotenv_path = find_dotenv(usecwd=True)
 load_dotenv(dotenv_path=dotenv_path)
 logging.info("[dash_weather] dotenv loaded from: %s", dotenv_path if dotenv_path else "<none>")
 
-# Read env vars (with defaults)
 OWM_API_KEY = os.getenv("OWM_API_KEY")
 OWM_LAT     = os.getenv("OWM_LAT")
 OWM_LON     = os.getenv("OWM_LON")
 OWM_UNITS   = os.getenv("OWM_UNITS", "metric")
 
-# Optional: surface missing keys early for clarity
-missing = [k for k,v in {"OWM_API_KEY": OWM_API_KEY, "OWM_LAT": OWM_LAT, "OWM_LON": OWM_LON}.items() if not v]
+missing = [k for k, v in {"OWM_API_KEY": OWM_API_KEY, "OWM_LAT": OWM_LAT, "OWM_LON": OWM_LON}.items() if not v]
 if missing:
     logging.warning("[dash_weather] missing env: %s (set them in your .env)", ", ".join(missing))
 
@@ -34,7 +33,6 @@ EPD_LIB = "./lib"
 if os.path.exists(EPD_LIB):
     sys.path.append(EPD_LIB)
 
-# EPD driver will be imported lazily when needed for display
 epd_driver = None
 
 WIDTH, HEIGHT = 800, 480
@@ -42,70 +40,54 @@ CACHE_DIR = Path("cache"); CACHE_DIR.mkdir(exist_ok=True)
 WEATHER_CACHE = CACHE_DIR / "weather.json"
 HEADERS = {"User-Agent": "SakuraWeather/1.0 (personal use)"}
 
-# Allow overriding cache TTL via env (minutes)
 WEATHER_CACHE_TTL_MIN = int(os.environ.get("WEATHER_CACHE_TTL_MIN", "30"))
 CACHE_TTL = timedelta(minutes=WEATHER_CACHE_TTL_MIN)
+
+# ── Fonts ──────────────────────────────────────────────────────────────────────
+FONT_DIR = Path("fonts")
+try:
+    FONT_HEADER  = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 22)
+    FONT_TEMP    = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 64)
+    FONT_COND    = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 24)
+    FONT_VALUE   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 20)
+    FONT_LABEL   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 17)
+    FONT_DAY     = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 20)
+    FONT_FC_TEMP = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 18)
+    FONT_SMALL   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 14)
+except Exception as e:
+    logging.warning("[dash_weather] font load failed (%s); falling back to default PIL font", e)
+    FONT_HEADER = FONT_TEMP = FONT_COND = FONT_VALUE = FONT_LABEL = \
+        FONT_DAY = FONT_FC_TEMP = FONT_SMALL = ImageFont.load_default()
+logging.info("[dash_weather] fonts loaded")
+
+WEATHER_ICON_DIR = Path("img/weather")
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def load_cache(path: Path, ttl: timedelta) -> dict | None:
     try:
         if not path.exists():
             return None
-        raw = path.read_text()
-        data = json.loads(raw)
-        ts = data.get("_ts")
-        if ts is None:
-            return None
-        age = datetime.now().timestamp() - float(ts)
+        data = json.loads(path.read_text())
+        age = datetime.now().timestamp() - float(data.get("_ts", 0))
         if age <= ttl.total_seconds():
             logging.info("[dash_weather] using cached weather (age: %.0fs)", age)
             return data
-        else:
-            logging.info("[dash_weather] cache stale (age: %.0fs > %.0fs)", age, ttl.total_seconds())
+        logging.info("[dash_weather] cache stale (age: %.0fs > %.0fs)", age, ttl.total_seconds())
     except Exception as e:
         logging.warning("[dash_weather] failed to load cache: %s", e)
     return None
 
 def save_cache(path: Path, payload: dict) -> None:
     try:
-        payload = dict(payload)
-        payload["_ts"] = datetime.now().timestamp()
-        path.write_text(json.dumps(payload))
+        out = dict(payload)
+        out["_ts"] = datetime.now().timestamp()
+        path.write_text(json.dumps(out))
         logging.info("[dash_weather] wrote weather cache → %s", path)
     except Exception as e:
         logging.warning("[dash_weather] failed to write cache: %s", e)
 
-# Fonts
-FONT_DIR = Path("fonts")
-try:
-    FONT_INFO    = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 32)
-    FONT_INFO_SM = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 22)
-except Exception as e:
-    logging.warning("[dash_weather] font load failed (%s); falling back to default PIL font", e)
-    FONT_INFO = FONT_INFO_SM = ImageFont.load_default()
-logging.info("[dash_weather] fonts loaded: MPLUSRounded1c + Fredoka")
-
-WEATHER_ICON_DIR = Path("img/weather")
-
-# ------------ Helpers for layout & icons ------------
-def wrap_text_to_width(text, font, max_width, draw):
-    words = text.split()
-    if not words:
-        return [""]
-    lines = []
-    cur = words[0]
-    for w in words[1:]:
-        test = cur + " " + w
-        bbox = draw.textbbox((0, 0), test, font=font)
-        if bbox[2] - bbox[0] <= max_width:
-            cur = test
-        else:
-            lines.append(cur)
-            cur = w
-    lines.append(cur)
-    return lines
-
 def load_icon(name: str, size: int) -> Image.Image | None:
-    """Load a weather icon PNG by simple key (e.g., 'sun', 'clouds'). Returns RGBA or None."""
     p = WEATHER_ICON_DIR / f"{name}.png"
     p_alt = WEATHER_ICON_DIR / f"{name}_48.png"
     if not p.exists() and size == 48 and p_alt.exists():
@@ -119,151 +101,254 @@ def load_icon(name: str, size: int) -> Image.Image | None:
     return img
 
 def owm_icon_to_simple(weather_id: int, main: str, desc: str) -> str:
-    """Map OWM condition to our simple icon keys."""
-    if 200 <= weather_id <= 232:
-        return "thunder"
-    if 300 <= weather_id <= 321:
-        return "drizzle"
-    if 500 <= weather_id <= 531:
-        return "rain"
-    if 600 <= weather_id <= 622:
-        return "snow"
-    if 700 <= weather_id <= 781:
-        return "mist"
-    if weather_id == 800:
-        return "sun"
-    if 801 <= weather_id <= 804:
-        return "clouds"
+    if 200 <= weather_id <= 232: return "thunder"
+    if 300 <= weather_id <= 321: return "drizzle"
+    if 500 <= weather_id <= 531: return "rain"
+    if 600 <= weather_id <= 622: return "snow"
+    if 700 <= weather_id <= 781: return "mist"
+    if weather_id == 800:        return "sun"
+    if 801 <= weather_id <= 804: return "clouds"
     m = (main or "").lower()
-    if "rain" in m:
-        return "rain"
-    if "snow" in m:
-        return "snow"
-    if "cloud" in m:
-        return "clouds"
+    if "rain"  in m: return "rain"
+    if "snow"  in m: return "snow"
+    if "cloud" in m: return "clouds"
     return "sun"
 
-# ------------ Main compositor ------------
+def wind_cardinal(deg) -> str:
+    if deg is None:
+        return ""
+    dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+    return dirs[round(deg / 45) % 8]
+
+# ── Main compositor ────────────────────────────────────────────────────────────
+
+# Per-condition border colors for forecast cards (maps to e-ink palette well)
+_COND_COLORS = {
+    "sun":     (220, 140,   0),
+    "clouds":  (120, 140, 185),
+    "rain":    ( 60, 130, 210),
+    "drizzle": ( 80, 150, 215),
+    "snow":    (150, 180, 235),
+    "mist":    (140, 160, 190),
+    "thunder": (200, 120,  40),
+}
+
 def compose_weather_dashboard(data: dict) -> Image.Image:
-    """Return an 800x480 RGB image with current + 3-day forecast and Sakura bubble."""
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     draw = ImageDraw.Draw(canvas)
 
-    # Extract weather pieces
     current = data.get("current", {})
-    daily = data.get("daily", [])[:5]  # today + next 4
-    tz = data.get("timezone", "")
+    daily   = data.get("daily", [])
+    tz_name = data.get("timezone", "")
 
-    # Header with nice color
+    # Current conditions
     now_ts = current.get("dt", time.time())
     try:
         now = datetime.fromtimestamp(now_ts)
     except Exception:
         now = datetime.now()
-    header = now.strftime(f"%a %b %d  •  {tz or 'Local'}")
-    draw.text((20, 18), header, font=FONT_INFO_SM, fill=(60, 100, 180))  # Nice blue
 
-    # Current conditions (left)
-    wlist = current.get("weather", [{"id": 800, "main": "Clear", "description": "clear"}])
-    wid = wlist[0].get("id", 800)
-    main = wlist[0].get("main", "Clear")
-    desc = wlist[0].get("description", "")
-    icon_key = owm_icon_to_simple(wid, main, desc)
+    wlist     = current.get("weather", [{"id": 800, "main": "Clear", "description": "clear sky"}])
+    wid       = wlist[0].get("id", 800)
+    cond_main = wlist[0].get("main", "Clear")
+    cond_desc = wlist[0].get("description", "").title()
+    icon_key  = owm_icon_to_simple(wid, cond_main, cond_desc)
 
-    temp = current.get("temp", 0)
-    feels = current.get("feels_like", temp)
+    temp     = current.get("temp")
+    feels    = current.get("feels_like")
+    humidity = current.get("humidity")
+    wind_spd = current.get("wind_speed")
+    wind_deg = current.get("wind_deg")
+    uvi      = current.get("uvi")
+
+    # Today H/L: provided by 2.5 free path; fall back to daily[0] for OneCall 3.0
+    today_hi = current.get("today_max") or (daily[0].get("temp", {}).get("max") if daily else None)
+    today_lo = current.get("today_min") or (daily[0].get("temp", {}).get("min") if daily else None)
+
     units_sym = "°C" if OWM_UNITS == "metric" else "°F"
+    speed_sym = "km/h" if OWM_UNITS == "metric" else "mph"
 
+    # OWM returns wind in m/s for metric — convert to km/h for display
+    if wind_spd is not None and OWM_UNITS == "metric":
+        wind_spd = round(wind_spd * 3.6)
+    elif wind_spd is not None:
+        wind_spd = round(wind_spd)
 
-    left_x = 20
-    cur_y = 60
-    icon_sz = 96
+    def fmt(val) -> str:
+        return f"{round(val)}{units_sym}" if isinstance(val, (int, float)) else "–"
 
-    icon = load_icon(icon_key, icon_sz)
-    if icon is not None:
-        canvas.paste(icon, (left_x, cur_y), icon)
+    # ── HEADER ────────────────────────────────────────────────────────────
+    loc = tz_name.replace("_", " ").split("/")[-1] if tz_name else "Weather"
+    date_str = now.strftime("%A, %b %d  •  %I:%M %p").lstrip("0")
+
+    draw.text((16, 10), loc, font=FONT_HEADER, fill=(50, 80, 165))
+    date_w = draw.textbbox((0, 0), date_str, font=FONT_LABEL)[2]
+    draw.text((WIDTH - date_w - 16, 12), date_str, font=FONT_LABEL, fill=(90, 110, 145))
+    draw.line([(0, 44), (WIDTH, 44)], fill=(180, 195, 215), width=2)
+
+    # ── LEFT PANEL: icon + big temperature + condition ─────────────────────
+    LP = (8, 50, 390, 270)   # x1, y1, x2, y2
+    draw.rounded_rectangle(LP, radius=14, outline=(175, 188, 215), width=2)
+
+    ICON_SZ = 90
+    icon_img = load_icon(icon_key, ICON_SZ)
+    ix, iy = LP[0] + 14, LP[1] + 14
+    if icon_img:
+        canvas.paste(icon_img, (ix, iy), icon_img)
     else:
-        draw.rounded_rectangle([left_x, cur_y, left_x + icon_sz, cur_y + icon_sz], radius=18, outline=(200, 200, 220), width=3)
+        draw.rounded_rectangle([ix, iy, ix + ICON_SZ, iy + ICON_SZ],
+                               radius=12, outline=(180, 190, 215), width=2)
 
-    tx = left_x + icon_sz + 16
-    draw.text((tx, cur_y), f"{round(temp) if isinstance(temp, (int, float)) else temp}{units_sym}", font=FONT_INFO, fill=(0, 100, 200))  # Bright blue for temp
-    draw.text((tx, cur_y + 42), main, font=FONT_INFO_SM, fill=(120, 80, 40))  # Warm brown for condition
-    if isinstance(feels, (int, float)):
-        draw.text((tx, cur_y + 72), f"Feels {round(feels)}{units_sym}", font=FONT_INFO_SM, fill=(100, 120, 60))  # Green for feels like
+    # Temperature to the right of the icon
+    temp_str = fmt(temp)
+    tx = ix + ICON_SZ + 14
+    ty = LP[1] + 10
+    draw.text((tx, ty), temp_str, font=FONT_TEMP, fill=(30, 75, 180))
 
-    # Forecast cards (next 4 days) - expanded with full screen space
-    card_w = 180
-    gap = 15
-    start_x = 20
-    start_y = 180
-    # Colorful outline colors per condition (e-ink friendly but more vibrant)
-    condition_colors = {
-        "sun":      (255, 180, 0),    # vibrant orange
-        "clouds":   (140, 160, 200),  # nice blue-gray
-        "rain":     (80, 150, 220),   # bright blue
-        "drizzle":  (100, 170, 230),  # lighter blue
-        "snow":     (180, 200, 255),  # icy blue
-        "mist":     (160, 180, 200),  # soft gray-blue
-        "thunder":  (220, 140, 60),   # warm amber
-    }
-    for i, day in enumerate(daily[1:5], start=0):  # Show next 4 days instead of 3
-        x = start_x + i * (card_w + gap)
-        y = start_y
-        dt = datetime.fromtimestamp(day.get("dt", time.time()))
-        name = dt.strftime("%a")
-        w = day.get("weather", [{"id": 800, "main": "Clear", "description": ""}])[0]
-        i_key = owm_icon_to_simple(w.get("id", 800), w.get("main", "Clear"), w.get("description", ""))
-        # Choose outline color based on icon key
-        outline_col = condition_colors.get(i_key, (200, 200, 220))
-        draw.rounded_rectangle([x, y, x + card_w, y + 140], radius=16, outline=outline_col, width=4, fill=None)
-        ic = load_icon(i_key, 48)
+    # Condition description below icon
+    cond_y = iy + ICON_SZ + 10
+    draw.text((LP[0] + 14, cond_y), cond_desc or cond_main, font=FONT_COND, fill=(70, 55, 120))
+
+    # Soft "updated" timestamp at bottom of panel
+    upd = now.strftime("Updated %I:%M %p").replace(" 0", " ")
+    draw.text((LP[0] + 14, LP[3] - 22), upd, font=FONT_SMALL, fill=(160, 165, 180))
+
+    # ── RIGHT PANEL: detail stats ─────────────────────────────────────────
+    RP = (400, 50, 792, 270)
+    draw.rounded_rectangle(RP, radius=14, outline=(175, 188, 215), width=2)
+
+    rx = RP[0] + 16          # left edge of text inside panel
+    rr = RP[2] - 16          # right edge for value alignment
+
+    draw.text((rx, RP[1] + 10), "Today's Details", font=FONT_SMALL, fill=(110, 120, 150))
+    draw.line([(RP[0] + 12, RP[1] + 32), (RP[2] - 12, RP[1] + 32)], fill=(190, 200, 218), width=1)
+
+    def stat_row(y: int, label: str, value: str, val_color=(28, 38, 60)):
+        draw.text((rx, y), label, font=FONT_LABEL, fill=(105, 115, 140))
+        vw = draw.textbbox((0, 0), value, font=FONT_VALUE)[2]
+        draw.text((rr - vw, y - 1), value, font=FONT_VALUE, fill=val_color)
+
+    ROW_START = RP[1] + 42
+    ROW_STEP  = 38
+
+    # Today H/L — two right-aligned values side by side
+    draw.text((rx, ROW_START), "Today", font=FONT_LABEL, fill=(105, 115, 140))
+    hi_s = f"↑ {fmt(today_hi)}"
+    lo_s = f"↓ {fmt(today_lo)}"
+    hi_w = draw.textbbox((0, 0), hi_s, font=FONT_VALUE)[2]
+    lo_w = draw.textbbox((0, 0), lo_s, font=FONT_VALUE)[2]
+    lo_x = rr - lo_w
+    hi_x = lo_x - hi_w - 14
+    draw.text((hi_x, ROW_START - 1), hi_s, font=FONT_VALUE, fill=(210, 55, 35))
+    draw.text((lo_x, ROW_START - 1), lo_s, font=FONT_VALUE, fill=(40, 100, 200))
+
+    stat_row(ROW_START + ROW_STEP,     "Feels Like",
+             fmt(feels))
+    stat_row(ROW_START + ROW_STEP * 2, "Humidity",
+             f"{humidity}%" if humidity is not None else "–")
+    wind_val = (f"{wind_spd} {speed_sym} {wind_cardinal(wind_deg)}"
+                if wind_spd is not None else "–")
+    stat_row(ROW_START + ROW_STEP * 3, "Wind", wind_val)
+
+    if uvi is not None:
+        uvi_labels = ["Low","Low","Low","Moderate","Moderate","Moderate",
+                      "High","High","Very High","Very High","Very High","Extreme"]
+        uvi_str = f"{round(uvi)} – {uvi_labels[min(int(uvi), 11)]}"
+        stat_row(ROW_START + ROW_STEP * 4, "UV Index", uvi_str)
+
+    # ── DIVIDER ───────────────────────────────────────────────────────────
+    draw.line([(8, 278), (WIDTH - 8, 278)], fill=(175, 192, 215), width=2)
+
+    # ── FORECAST STRIP: next 4 days ───────────────────────────────────────
+    forecast_days = daily[1:5]
+    if not forecast_days:
+        return canvas
+
+    N = len(forecast_days)
+    CARD_MARGIN = 8
+    CARD_GAP    = 8
+    card_w = (WIDTH - 2 * CARD_MARGIN - CARD_GAP * (N - 1)) // N
+    FC_Y1, FC_Y2 = 284, 474
+
+    for i, day in enumerate(forecast_days):
+        cx1 = CARD_MARGIN + i * (card_w + CARD_GAP)
+        cx2 = cx1 + card_w
+        cx_mid = cx1 + card_w // 2
+
+        dt  = datetime.fromtimestamp(day.get("dt", time.time()))
+        dw  = day.get("weather", [{"id": 800, "main": "Clear", "description": ""}])[0]
+        dk  = owm_icon_to_simple(dw.get("id", 800), dw.get("main", "Clear"), dw.get("description", ""))
+        col = _COND_COLORS.get(dk, (175, 188, 210))
+
+        draw.rounded_rectangle([cx1, FC_Y1, cx2, FC_Y2], radius=14, outline=col, width=3)
+
+        # Day name (centered)
+        day_name = dt.strftime("%a")
+        dnw = draw.textbbox((0, 0), day_name, font=FONT_DAY)[2]
+        draw.text((cx_mid - dnw // 2, FC_Y1 + 8), day_name, font=FONT_DAY, fill=(65, 52, 115))
+
+        # Short date (centered)
+        date_lbl = dt.strftime("%b %d")
+        dlw = draw.textbbox((0, 0), date_lbl, font=FONT_SMALL)[2]
+        draw.text((cx_mid - dlw // 2, FC_Y1 + 32), date_lbl, font=FONT_SMALL, fill=(115, 125, 150))
+
+        # Icon (centered)
+        ic = load_icon(dk, 56)
+        if ic:
+            canvas.paste(ic, (cx_mid - 28, FC_Y1 + 54), ic)
+        else:
+            draw.rounded_rectangle([cx1 + 20, FC_Y1 + 54, cx2 - 20, FC_Y1 + 110],
+                                   radius=10, outline=col, width=2)
+
+        # High / Low temps (centered)
         tmax = day.get("temp", {}).get("max")
         tmin = day.get("temp", {}).get("min")
+        hi_s = fmt(tmax)
+        lo_s = fmt(tmin)
+        hiw = draw.textbbox((0, 0), hi_s, font=FONT_FC_TEMP)[2]
+        low = draw.textbbox((0, 0), lo_s, font=FONT_FC_TEMP)[2]
+        draw.text((cx_mid - hiw // 2, FC_Y1 + 118), hi_s, font=FONT_FC_TEMP, fill=(210, 55, 35))
+        draw.text((cx_mid - low  // 2, FC_Y1 + 142), lo_s, font=FONT_FC_TEMP, fill=(40, 100, 200))
 
-        draw.text((x + 14, y + 12), name, font=FONT_INFO_SM, fill=(80, 60, 120))  # Purple for day names
-        if ic:
-            canvas.paste(ic, (x + 14, y + 42), ic)
-        else:
-            draw.rounded_rectangle([x + 14, y + 42, x + 62, y + 90], radius=10, outline=outline_col, width=2)
-        if isinstance(tmax, (int, float)):
-            draw.text((x + 80, y + 50), f"{round(tmax)}{units_sym}", font=FONT_INFO_SM, fill=(220, 60, 40))  # Red for high temp
-        if isinstance(tmin, (int, float)):
-            draw.text((x + 80, y + 80), f"{round(tmin)}{units_sym}", font=FONT_INFO_SM, fill=(60, 120, 200))  # Blue for low temp
-
-    # Sakura integration removed - using full screen space
+        # Condition label (centered, truncated)
+        cond_lbl = (dw.get("description") or dw.get("main", "")).title()
+        if cond_lbl:
+            cond_lbl = cond_lbl[:18]
+            clw = draw.textbbox((0, 0), cond_lbl, font=FONT_SMALL)[2]
+            draw.text((cx_mid - clw // 2, FC_Y1 + 168), cond_lbl, font=FONT_SMALL, fill=(88, 95, 118))
 
     return canvas
 
+
+# ── EPD display ────────────────────────────────────────────────────────────────
+
 def display_on_epd(img: Image.Image):
     global epd_driver
-    
-    # Import EPD driver lazily only when we actually need to display
     if epd_driver is None:
         try:
             from waveshare_epd import epd7in3e as epd_driver
-            logging.info("[dash_weather] Waveshare EPD driver loaded")
+            logging.info("[dash_weather] EPD driver loaded")
         except Exception as e:
-            logging.warning("[dash_weather] EPD driver unavailable (%s) — saving preview to out_weather.png", e)
+            logging.warning("[dash_weather] EPD driver unavailable (%s) — saving to out_weather.png", e)
             img.save("out_weather.png")
             return
-    
     try:
         epd = epd_driver.EPD()
         epd.init()
-        logging.info("Displaying on EPD (single refresh)…")
+        logging.info("Displaying on EPD…")
         epd.display(epd.getbuffer(img))
         epd.sleep()
         logging.info("Done. EPD sleeping.")
     except Exception as e:
-        logging.error("[dash_weather] EPD error: %s — saving preview to out_weather.png", e)
+        logging.error("[dash_weather] EPD error: %s — saving to out_weather.png", e)
         img.save("out_weather.png")
 
-def compose_weather_dashboard_no_display():
-    """Create the weather dashboard image without displaying it on e-ink."""
-    data = get_weather()
-    return compose_weather_dashboard(data)
+def compose_weather_dashboard_no_display() -> Image.Image:
+    return compose_weather_dashboard(get_weather())
 
-# Convenience wrapper: use cache if fresh, else fetch and cache
+
+# ── Data fetching ──────────────────────────────────────────────────────────────
+
 def get_weather() -> dict:
     cached = load_cache(WEATHER_CACHE, CACHE_TTL)
     if cached is not None:
@@ -273,55 +358,56 @@ def get_weather() -> dict:
     save_cache(WEATHER_CACHE, data)
     return data
 
-def main():
-    data = get_weather()
-    logging.info("[dash_weather] composing dashboard…")
-    dash = compose_weather_dashboard(data)
-    logging.info("[dash_weather] displaying…")
-    display_on_epd(dash)
-
-def fetch_weather_3_0():
-    """Fetch using One Call 3.0 (paid). Returns native OneCall 3.0 JSON or raises for non-200."""
+def fetch_weather_3_0() -> dict:
+    """One Call 3.0 (paid). Returns native JSON."""
     if not (OWM_API_KEY and OWM_LAT and OWM_LON):
         raise RuntimeError("Set OWM_API_KEY, OWM_LAT, OWM_LON in env.")
-    params = {
-        "lat": OWM_LAT,
-        "lon": OWM_LON,
-        "appid": OWM_API_KEY,
-        "units": OWM_UNITS,
-        "exclude": "minutely,hourly,alerts",
-    }
-    r = requests.get("https://api.openweathermap.org/data/3.0/onecall", params=params, headers=HEADERS, timeout=15)
+    r = requests.get(
+        "https://api.openweathermap.org/data/3.0/onecall",
+        params={"lat": OWM_LAT, "lon": OWM_LON, "appid": OWM_API_KEY,
+                "units": OWM_UNITS, "exclude": "minutely,hourly,alerts"},
+        headers=HEADERS, timeout=15,
+    )
     r.raise_for_status()
     return r.json()
 
-def fetch_weather_2_5():
-    """Fetch using free 2.5 endpoints (current + 5 day / 3 hour forecast) and normalize to OneCall-like."""
+def fetch_weather_2_5() -> dict:
+    """Free 2.5 endpoints, normalized to a OneCall-compatible shape."""
     if not (OWM_API_KEY and OWM_LAT and OWM_LON):
         raise RuntimeError("Set OWM_API_KEY, OWM_LAT, OWM_LON in env.")
-    # Current weather
-    params_c = {"lat": OWM_LAT, "lon": OWM_LON, "appid": OWM_API_KEY, "units": OWM_UNITS}
-    rc = requests.get("https://api.openweathermap.org/data/2.5/weather", params=params_c, headers=HEADERS, timeout=15)
+
+    params = {"lat": OWM_LAT, "lon": OWM_LON, "appid": OWM_API_KEY, "units": OWM_UNITS}
+    rc = requests.get("https://api.openweathermap.org/data/2.5/weather",
+                      params=params, headers=HEADERS, timeout=15)
     rc.raise_for_status()
     cur = rc.json()
-    # 5 day / 3 hour forecast
-    rf = requests.get("https://api.openweathermap.org/data/2.5/forecast", params=params_c, headers=HEADERS, timeout=15)
+
+    rf = requests.get("https://api.openweathermap.org/data/2.5/forecast",
+                      params=params, headers=HEADERS, timeout=15)
     rf.raise_for_status()
     fc = rf.json()
 
-    # Normalize
-    now = int(cur.get("dt", time.time()))
-    tz_offset = cur.get("timezone", 0)  # seconds offset
-    tz_name = cur.get("name") or fc.get("city", {}).get("name", "")
+    now       = int(cur.get("dt", time.time()))
+    tz_offset = cur.get("timezone", 0)
+    tz_name   = cur.get("name") or fc.get("city", {}).get("name", "")
+
+    main_blk = cur.get("main", {})
+    wind_blk = cur.get("wind", {})
+
     current = {
-        "dt": now,
-        "temp": cur.get("main", {}).get("temp"),
-        "feels_like": cur.get("main", {}).get("feels_like", cur.get("main", {}).get("temp")),
-        "weather": cur.get("weather", [{"id":800,"main":"Clear","description":""}]),
+        "dt":        now,
+        "temp":      main_blk.get("temp"),
+        "feels_like":main_blk.get("feels_like"),
+        "humidity":  main_blk.get("humidity"),
+        "today_min": main_blk.get("temp_min"),
+        "today_max": main_blk.get("temp_max"),
+        "wind_speed":wind_blk.get("speed"),
+        "wind_deg":  wind_blk.get("deg"),
+        "weather":   cur.get("weather", [{"id": 800, "main": "Clear", "description": ""}]),
+        # uvi not available on free 2.5 tier
     }
 
-    # Build daily aggregates for next 3 days from forecast list
-    from collections import defaultdict, Counter
+    # Build daily aggregates from 3-hour forecast list
     buckets = defaultdict(list)
     for item in fc.get("list", []):
         ts = item.get("dt")
@@ -331,59 +417,52 @@ def fetch_weather_2_5():
         buckets[day].append(item)
 
     today = datetime.utcfromtimestamp(now + tz_offset).date()
-    days_sorted = sorted([d for d in buckets.keys() if d >= today])
-    # Create up to 4 entries: today + next 3
     daily = []
-    for d in days_sorted[:4]:
+    for d in sorted(d for d in buckets if d >= today)[:5]:
         entries = buckets[d]
-        if not entries:
-            continue
-        temps = [e.get("main", {}).get("temp") for e in entries if e.get("main", {}).get("temp") is not None]
+        temps = [e["main"]["temp"] for e in entries if e.get("main", {}).get("temp") is not None]
         tmin = min(temps) if temps else None
         tmax = max(temps) if temps else None
-        # choose representative weather by most common main
-        mains = [ (w.get("id",800), w.get("main","Clear"), w.get("description",""))
-                  for e in entries for w in e.get("weather",[]) ]
+
+        # Representative weather: most common condition id across all 3-hour slots
+        mains = [(w.get("id", 800), w.get("main", "Clear"), w.get("description", ""))
+                 for e in entries for w in e.get("weather", [])]
         if mains:
-            id_counts = Counter([m[0] for m in mains])
-            top_id = id_counts.most_common(1)[0][0]
-            top_tuple = next(m for m in mains if m[0]==top_id)
-            rep_weather = [{"id": top_tuple[0], "main": top_tuple[1], "description": top_tuple[2]}]
+            top_id = Counter(m[0] for m in mains).most_common(1)[0][0]
+            top    = next(m for m in mains if m[0] == top_id)
+            rep_weather = [{"id": top[0], "main": top[1], "description": top[2]}]
         else:
-            rep_weather = [{"id":800,"main":"Clear","description":""}]
+            rep_weather = [{"id": 800, "main": "Clear", "description": ""}]
 
-        # dt: noon local if available, else first entry
-        noon_entry = None
-        for e in entries:
-            h = datetime.utcfromtimestamp(e["dt"] + tz_offset).hour
-            if 11 <= h <= 13:
-                noon_entry = e
-                break
-        dt_rep = noon_entry["dt"] if noon_entry else entries[0]["dt"]
-
+        # Prefer a noon entry as the representative timestamp
+        noon = next((e for e in entries
+                     if 11 <= datetime.utcfromtimestamp(e["dt"] + tz_offset).hour <= 13), None)
         daily.append({
-            "dt": dt_rep,
-            "temp": {"min": tmin, "max": tmax},
+            "dt":      (noon or entries[0])["dt"],
+            "temp":    {"min": tmin, "max": tmax},
             "weather": rep_weather,
         })
 
-    return {
-        "timezone": tz_name,
-        "current": current,
-        "daily": daily,
-    }
+    return {"timezone": tz_name, "current": current, "daily": daily}
 
-def fetch_weather():
-    """Try One Call 3.0; on 401/403 fall back to free 2.5 endpoints and normalize."""
+def fetch_weather() -> dict:
+    """Try OneCall 3.0; fall back to free 2.5 on auth errors."""
     try:
         return fetch_weather_3_0()
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else None
         if status in (401, 403):
-            logging.warning("One Call 3.0 unauthorized (%s). Falling back to free 2.5 endpoints.", status)
+            logging.warning("OneCall 3.0 unauthorized (%s). Falling back to free 2.5.", status)
             return fetch_weather_2_5()
         raise
 
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+
+def main():
+    data = get_weather()
+    logging.info("[dash_weather] composing dashboard…")
+    display_on_epd(compose_weather_dashboard(data))
 
 if __name__ == "__main__":
     main()
