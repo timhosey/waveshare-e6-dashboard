@@ -444,21 +444,6 @@ def compose_motivation_dashboard():
     quote_y = 380
     draw.text((20, quote_y), f"💫 {quote}", font=FONT_SMALL, fill=(160, 100, 60))  # Orange for motivational quote
     
-    # Sakura with motivation-themed commentary
-    calendar_events = calendar_data.get("events", [])
-    if calendar_events:
-        event_count = len(calendar_events)
-        if event_count > 5:
-            comment = f"Sakura: Busy day ahead! You've got {event_count} events planned. Ganbatte! 💪"
-        elif event_count > 2:
-            comment = f"Sakura: Nice schedule today! {event_count} events to keep you productive! ✨"
-        else:
-            comment = f"Sakura: Relaxed day ahead with {event_count} events. Perfect time to focus! 🌸"
-    else:
-        comment = f"Sakura: Free day! Time to learn '{japanese_data['word']}' and chase your dreams! Nyaa~ ✨"
-    
-    # Sakura integration removed - using full screen space
-    
     return canvas
 
 # === EPD Display ===

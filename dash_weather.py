@@ -30,9 +30,6 @@ if missing:
 
 os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
 
-from dotenv import load_dotenv
-load_dotenv()
-
 EPD_LIB = "./lib"
 if os.path.exists(EPD_LIB):
     sys.path.append(EPD_LIB)
@@ -40,17 +37,10 @@ if os.path.exists(EPD_LIB):
 # EPD driver will be imported lazily when needed for display
 epd_driver = None
 
-# Basic constants (define if not already defined elsewhere)
-if 'WIDTH' not in globals():
-    WIDTH, HEIGHT = 800, 480
-if 'CACHE_DIR' not in globals():
-    CACHE_DIR = Path("cache"); CACHE_DIR.mkdir(exist_ok=True)
-if 'WEATHER_CACHE' not in globals():
-    WEATHER_CACHE = CACHE_DIR / "weather.json"
-if 'CACHE_TTL' not in globals():
-    CACHE_TTL = timedelta(minutes=30)
-if 'HEADERS' not in globals():
-    HEADERS = {"User-Agent": "SakuraWeather/1.0 (personal use)"}
+WIDTH, HEIGHT = 800, 480
+CACHE_DIR = Path("cache"); CACHE_DIR.mkdir(exist_ok=True)
+WEATHER_CACHE = CACHE_DIR / "weather.json"
+HEADERS = {"User-Agent": "SakuraWeather/1.0 (personal use)"}
 
 # Allow overriding cache TTL via env (minutes)
 WEATHER_CACHE_TTL_MIN = int(os.environ.get("WEATHER_CACHE_TTL_MIN", "30"))
@@ -85,30 +75,16 @@ def save_cache(path: Path, payload: dict) -> None:
         logging.warning("[dash_weather] failed to write cache: %s", e)
 
 # Fonts
-if 'FONT_DIR' not in globals():
-    FONT_DIR = Path("fonts")
+FONT_DIR = Path("fonts")
 try:
     FONT_INFO    = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 32)
     FONT_INFO_SM = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 22)
-    FONT_SAKURA  = ImageFont.truetype(str(FONT_DIR / "Fredoka-Regular.ttf"), 20)
 except Exception as e:
     logging.warning("[dash_weather] font load failed (%s); falling back to default PIL font", e)
-    FONT_INFO = FONT_INFO_SM = FONT_SAKURA = ImageFont.load_default()
+    FONT_INFO = FONT_INFO_SM = ImageFont.load_default()
 logging.info("[dash_weather] fonts loaded: MPLUSRounded1c + Fredoka")
 
-# Sakura art + weather icons
-if 'SAKURA_EMOTE' not in globals():
-    # Set to 'auto' to let the code choose an outfit based on weather
-    SAKURA_EMOTE = os.environ.get("SAKURA_EMOTE", "auto")
-if 'SAKURA_DIR' not in globals():
-    SAKURA_DIR = Path("img/sakura")
-if 'WEATHER_ICON_DIR' not in globals():
-    WEATHER_ICON_DIR = Path("img/weather")
-
-# ... [assume other imports and code here]
-
-# After creating fonts, add:
-logging.info("[dash_weather] fonts loaded: MPLUSRounded1c + Fredoka")
+WEATHER_ICON_DIR = Path("img/weather")
 
 # ------------ Helpers for layout & icons ------------
 def wrap_text_to_width(text, font, max_width, draw):
@@ -167,78 +143,6 @@ def owm_icon_to_simple(weather_id: int, main: str, desc: str) -> str:
         return "clouds"
     return "sun"
 
-def sakura_comment(main: str, temp: float, desc: str) -> str:
-    units_sym = "°C" if OWM_UNITS == "metric" else "°F"
-    m = (main or "").lower()
-    try:
-        t = round(float(temp)) if temp is not None else "?"
-    except Exception:
-        t = "?"
-    if "rain" in m or "drizzle" in m:
-        return f"Sakura: Umbrella time, Tim-senpai! Nyaa~ ☔ ({t}{units_sym})"
-    if "snow" in m:
-        return f"Sakura: Brr~ bundle up! ❄️ ({t}{units_sym})"
-    if "cloud" in m:
-        return f"Sakura: Cloudy cuddles day~ ☁️ ({t}{units_sym})"
-    if "clear" in m or "sun" in m:
-        return f"Sakura: Sunny smiles! ☀️ ({t}{units_sym})"
-    return f"Sakura: {main.title() if main else 'Weather'} vibes~ ({t}{units_sym})"
-
-# --- Sakura outfit picker ---
-def _to_fahrenheit(val, units):
-    try:
-        v = float(val)
-    except Exception:
-        return None
-    if units == "imperial":
-        return v
-    # metric -> convert C to F
-    return v * 9.0/5.0 + 32.0
-
-# Map OpenWeather "main" field to outfit base key
-_SAKURA_MAP = {
-    "Thunderstorm": "sakura_thunder.png",
-    "Rain":         "sakura_rain.png",
-    "Drizzle":      "sakura_rain.png",
-    "Snow":         "sakura_snow.png",
-    "Mist":         "sakura_mist.png",
-    "Fog":          "sakura_mist.png",
-    "Clouds":       "sakura_cloudy.png",
-    "Clear":        "sakura_sunny.png",
-}
-
-def pick_sakura_sprite(main: str, temp_val, units: str) -> str:
-    """Return filename for Sakura outfit based on weather + temperature.
-    Hoodie rule: 55–70°F when not precip/snow/thunder/mist.
-    Sunny hot rule: if Clear and >= 80°F → sunny swimsuit.
-    """
-    # Allow manual override via SAKURA_EMOTE (unless it's 'auto')
-    if SAKURA_EMOTE and SAKURA_EMOTE.lower() != 'auto':
-        return f"sakura_{SAKURA_EMOTE.lower()}.png"
-
-    main = (main or "").title()
-    temp_f = _to_fahrenheit(temp_val, units)
-
-    # Precip-type outfits take precedence
-    if main in ("Thunderstorm", "Rain", "Drizzle", "Snow", "Mist", "Fog"):
-        return _SAKURA_MAP.get(main, "sakura_sunny.png")
-
-    # Hoodie window if not precip/mist/snow/thunder
-    if temp_f is not None and 55.0 <= temp_f <= 70.0:
-        return "sakura_hoodie.png"
-
-    # Clear / Clouds
-    if main == "Clear":
-        if temp_f is not None and temp_f >= 80.0:
-            return "sakura_sunny.png"  # swimsuit + shades
-        return "sakura_cloudy.png" if temp_f is not None and temp_f < 55.0 else "sakura_sunny.png"
-
-    if main == "Clouds":
-        return "sakura_cloudy.png"
-
-    # Fallback
-    return _SAKURA_MAP.get(main, "sakura_sunny.png")
-
 # ------------ Main compositor ------------
 def compose_weather_dashboard(data: dict) -> Image.Image:
     """Return an 800x480 RGB image with current + 3-day forecast and Sakura bubble."""
@@ -247,7 +151,7 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
 
     # Extract weather pieces
     current = data.get("current", {})
-    daily = data.get("daily", [])[:4]  # today + next 3
+    daily = data.get("daily", [])[:5]  # today + next 4
     tz = data.get("timezone", "")
 
     # Header with nice color

@@ -23,7 +23,6 @@ try:
     from dash_comic import compose_dashboard_no_display as compose_comic_web
     from dash_weather import compose_weather_dashboard_no_display as compose_weather_web
     from dash_motivation import compose_motivation_dashboard_no_display as compose_motivation_web
-    from dash_recipe import compose_recipe_dashboard_no_display as compose_recipe_web
     DASHBOARDS_AVAILABLE = True
 except ImportError as e:
     logging.warning("Dashboard modules not available: %s", e)
@@ -193,7 +192,7 @@ HTML_TEMPLATE = """
             <button onclick="loadDashboard('comic')">📚 Comic</button>
             <button onclick="loadDashboard('weather')">🌤️ Weather</button>
             <button onclick="loadDashboard('motivation')">📅 Motivation</button>
-            <button onclick="loadDashboard('recipe')">🍳 Recipe</button>
+            <button onclick="loadDashboard('news')">📰 News</button>
             <button onclick="loadArchives()">📁 Archives</button>
             <button onclick="loadStatus()">📊 Status</button>
         </div>
@@ -435,9 +434,10 @@ def get_dashboard(dashboard_name):
         elif dashboard_name == 'motivation':
             dashboard_func = compose_motivation_web
             name = "Motivation"
-        elif dashboard_name == 'recipe':
-            dashboard_func = compose_recipe_web
-            name = "Recipe"
+        elif dashboard_name == 'news':
+            from dash_news import compose_news_dashboard, get_news
+            dashboard_func = lambda: compose_news_dashboard(get_news())
+            name = "News"
         else:
             return jsonify({"success": False, "error": f"Unknown dashboard: {dashboard_name}"})
         

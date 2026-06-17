@@ -39,9 +39,6 @@ CACHE_DIR.mkdir(exist_ok=True)
 WIDTH, HEIGHT = 800, 480
 CACHE_TTL = timedelta(hours=6)  # Cache comics for 6 hours
 
-# Sakura override (set SAKURA_EMOTE to force a specific outfit; otherwise handled in sakura.py)
-SAKURA_OVERRIDE = os.environ.get("SAKURA_EMOTE", "auto")
-
 FONT_DIR = Path("fonts")
 
 # Dashboard/info text font
@@ -70,11 +67,12 @@ def get_latest_comic_number():
 
 
 def get_random_comic_number():
-    """Get a random comic number (excluding #0 and #404)."""
+    """Get a random comic number (excluding #404, which returns 404)."""
     latest = get_latest_comic_number()
-    # Exclude comic 0 (special) and 404 (not found)
-    valid_numbers = [i for i in range(1, latest + 1) if i not in [0, 404]]
-    return random.choice(valid_numbers)
+    num = random.randint(1, latest)
+    if num == 404:
+        num = 405
+    return num
 
 
 def cached_path_for(comic_num):
@@ -124,45 +122,43 @@ def fetch_xkcd_comic(comic_num):
         return None
 
 
+def cached_img_path_for(comic_num):
+    return CACHE_DIR / f"xkcd_{comic_num}.png"
+
+
 def get_comic_data(comic_num):
     """Get XKCD comic data (cached or freshly downloaded)."""
     p = cached_path_for(comic_num)
-    
+    img_p = cached_img_path_for(comic_num)
+
     # Check cache first
     if not is_stale(p):
         try:
             logging.info("Using cached comic data: %s", p)
             with open(p, 'r') as f:
                 cached_data = json.load(f)
-            # Reconstruct the PIL image from cached data
-            if 'img_data' in cached_data:
-                img_data = cached_data['img_data']
-                img_bytes = bytes(img_data)
-                cached_data['img'] = Image.open(BytesIO(img_bytes)).convert("RGB")
+            if img_p.exists():
+                cached_data['img'] = Image.open(img_p).convert("RGB")
                 return cached_data
         except Exception as e:
             logging.warning("Failed to load cached comic data: %s", e)
-    
+
     # Fetch fresh data
     comic_data = fetch_xkcd_comic(comic_num)
     if comic_data is not None:
         try:
-            # Save to cache (excluding the PIL image)
-            cache_data = dict(comic_data)
-            if 'img' in cache_data:
-                # Convert PIL image to bytes for caching
-                img_buffer = BytesIO()
-                cache_data['img'].save(img_buffer, format='PNG')
-                cache_data['img_data'] = list(img_buffer.getvalue())
-                del cache_data['img']  # Remove PIL object
-            
             p.parent.mkdir(exist_ok=True, parents=True)
+            # Save image as a real PNG file
+            if 'img' in comic_data:
+                comic_data['img'].save(img_p, format='PNG')
+            # Save metadata without the PIL object
+            cache_data = {k: v for k, v in comic_data.items() if k != 'img'}
             with open(p, 'w') as f:
                 json.dump(cache_data, f)
             logging.info("Saved comic data to cache: %s", p)
         except Exception as e:
             logging.warning("Failed to save cached comic data: %s", e)
-    
+
     return comic_data
 
 def get_random_comic():

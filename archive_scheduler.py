@@ -24,9 +24,9 @@ ARCHIVE_DIR.mkdir(exist_ok=True)
 # Dashboard scripts to archive
 DASHBOARD_SCRIPTS = [
     "dash_comic.py",
-    "dash_weather.py", 
+    "dash_weather.py",
     "dash_motivation.py",
-    "dash_recipe.py"
+    "dash_news.py",
 ]
 
 # Archive settings
