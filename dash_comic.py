@@ -193,61 +193,73 @@ def wrap_text_to_width(text, font, max_width, draw):
     return lines
 
 
+# Layout constants
+_HEADER_Y = 65      # top of image area (below title + date)
+_ALT_LINE_H = 20    # pixels per alt text line
+_ALT_LABEL_H = 22   # pixels for the "Alt text:" label
+_ALT_GAP = 10       # gap between image and alt text block
+_ALT_MAX_LINES = 3  # cap so alt text never swamps the image
+_MAX_UPSCALE = 1.5  # never blow a comic up more than 1.5× (avoids blurry pixel-doubled look)
+_MIN_SCALE = 0.55   # never shrink below 55% — prefer clipping on the right to illegibility
+
+
 # === Compose dashboard image ===
 def compose_dashboard(comic_data: dict):
     """Return an 800x480 RGB image with XKCD comic and alt text."""
     canvas = Image.new("RGB", (WIDTH, HEIGHT), (255, 255, 255))
     draw = ImageDraw.Draw(canvas)
-    
-    # Add colorful header with comic info
+
+    # Header
     title = comic_data.get("title", "XKCD Comic")
     comic_num = comic_data.get("num", "?")
     date = comic_data.get("date", "")
-    header = f"XKCD #{comic_num}: {title}"
-    draw.text((20, 10), header, font=FONT_TITLE, fill=(220, 100, 40))  # Orange header
-    
-    # Add date below header
+    draw.text((20, 10), f"XKCD #{comic_num}: {title}", font=FONT_TITLE, fill=(220, 100, 40))
     if date:
-        draw.text((20, 35), date, font=FONT_TEXT, fill=(100, 120, 140))  # Gray date
-    
-    # Get comic image
+        draw.text((20, 35), date, font=FONT_TEXT, fill=(100, 120, 140))
+
     strip_img = comic_data.get("img")
     if strip_img is None:
-        draw.text((20, 70), "No comic image available", font=FONT_TEXT, fill=(180, 60, 40))
+        draw.text((20, _HEADER_Y + 10), "No comic image available", font=FONT_TEXT, fill=(180, 60, 40))
         return canvas
-    
-    # Resize comic to fit width while leaving space for alt text
-    sw, sh = strip_img.size
-    available_height = HEIGHT - 120  # Leave space for header, date, and alt text
-    scale = min(WIDTH / sw, available_height / sh)
-    nw, nh = int(sw * scale), int(sh * scale)
-    strip_resized = strip_img.resize((nw, nh), Image.LANCZOS)
-    
-    # Paste centered horizontally
-    x = (WIDTH - nw) // 2
-    y = 70  # Below header and date
-    canvas.paste(strip_resized, (x, y))
-    
-    # Add colorful border around comic
-    draw.rounded_rectangle([x-5, y-5, x + nw + 5, y + nh + 5], 
-                          radius=8, outline=(160, 120, 200), width=3, fill=None)  # Purple border
-    
-    # Add alt text below the comic
+
     alt_text = comic_data.get("alt", "")
+
+    # Pass 1 — measure alt text so we can reserve space before placing the image.
+    alt_lines = []
     if alt_text:
-        # Wrap alt text to fit width
-        alt_lines = wrap_text_to_width(alt_text, FONT_TEXT, WIDTH - 40, draw)
-        alt_y = y + nh + 20  # Below comic with some spacing
-        
-        # Alt text header
-        draw.text((20, alt_y), "Alt text:", font=FONT_TEXT, fill=(120, 80, 160))  # Purple header
-        alt_y += 25
-        
-        # Alt text content
-        for line in alt_lines[:4]:  # Max 4 lines to fit
-            if alt_y + 20 < HEIGHT - 10:  # Make sure we don't go off screen
-                draw.text((20, alt_y), line, font=FONT_TEXT, fill=(80, 80, 100))  # Gray text
-                alt_y += 20
+        alt_lines = wrap_text_to_width(alt_text, FONT_TEXT, WIDTH - 40, draw)[:_ALT_MAX_LINES]
+    alt_block_h = (_ALT_GAP + _ALT_LABEL_H + len(alt_lines) * _ALT_LINE_H) if alt_lines else 0
+
+    # Pass 2 — fit the comic into whatever height remains above the alt text block.
+    img_area_h = HEIGHT - _HEADER_Y - alt_block_h
+    sw, sh = strip_img.size
+    scale = min(WIDTH / sw, img_area_h / sh, _MAX_UPSCALE)
+    scale = max(scale, _MIN_SCALE)  # never shrink so far the comic becomes illegible
+    nw, nh = int(sw * scale), int(sh * scale)
+
+    # If _MIN_SCALE kicked in and the image is taller than the area, clip the bottom
+    # (XKCD panels almost always have the punchline in the center/top).
+    nh_display = min(nh, img_area_h)
+    strip_resized = strip_img.resize((nw, nh), Image.LANCZOS)
+    if nh_display < nh:
+        strip_resized = strip_resized.crop((0, 0, nw, nh_display))
+
+    x = max(0, (WIDTH - nw) // 2)  # center; if wider than canvas, left-align
+    y = _HEADER_Y
+    canvas.paste(strip_resized, (x, y))
+    draw.rounded_rectangle(
+        [x - 5, y - 5, x + min(nw, WIDTH) + 5, y + nh_display + 5],
+        radius=8, outline=(160, 120, 200), width=3, fill=None,
+    )
+
+    # Pass 3 — draw alt text in its reserved block at the bottom.
+    if alt_lines:
+        alt_y = HEIGHT - alt_block_h + _ALT_GAP
+        draw.text((20, alt_y), "Alt text:", font=FONT_TEXT, fill=(120, 80, 160))
+        alt_y += _ALT_LABEL_H
+        for line in alt_lines:
+            draw.text((20, alt_y), line, font=FONT_TEXT, fill=(80, 80, 100))
+            alt_y += _ALT_LINE_H
 
     return canvas
 
