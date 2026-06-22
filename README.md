@@ -1,6 +1,6 @@
-📄 File to include in repo
+## File to include in repo
 
-Save this as: systemd/eink-rotator.service
+Save this as: `systemd/eink-rotator.service`
 
 ```
 [Unit]
@@ -37,18 +37,14 @@ WantedBy=default.target
 
 Tip: if your project path/user is different on the Pi, update those paths before installing.
 
-⸻
+## How to install on Raspberry Pi (user service)
 
-📘 README: How to install on Raspberry Pi (user service)
+### 1) Prereqs
 
-1) Prereqs
-	•	You’ve created a venv and can run:
-
+You’ve created a venv and can run:
 `/home/tim/Scripting/e-ink_display/.venv/bin/python dashboard.py`
 
-
-	•	Your .env exists at:
-
+Your .env exists at:
 `/home/tim/Scripting/e-ink_display/.env`
 
 with values like:
@@ -63,7 +59,7 @@ ROTATE_SECONDS=120
 
 (The app also supports DASH_CYCLE, DASH_TIMEOUT, etc.)
 
-2) Install as a user service (recommended)
+### 2) Install as a user service (recommended)
 
 ```
 # from the repo root
@@ -81,7 +77,7 @@ If you want it to start even when you’re not logged in (headless boot), enable
 
 `loginctl enable-linger $USER`
 
-3) Check logs
+### 3) Check logs
 
 `journalctl --user -u eink-rotator.service -f`
 
@@ -94,9 +90,9 @@ Launching: /home/tim/.../.venv/bin/python dash_weather.py
 ...
 ```
 
-4) Common tweaks
-	•	Change the rotate interval:
-	•	Edit `.env` → `ROTATE_SECONDS=300`, then:
+### 4) Common tweaks
+Change the rotate interval:
+Edit `.env` → `ROTATE_SECONDS=300`, then:
 
 `systemctl --user restart eink-rotator.service`
 
@@ -112,7 +108,7 @@ systemctl --user restart eink-rotator.service
 ```
 
 
-5) Permissions (GPIO/SPI)
+### 5) Permissions (GPIO/SPI)
 
 Make sure your user is in the gpio and spi groups (usually default on Pi OS, but just in case):
 
@@ -121,9 +117,7 @@ sudo usermod -aG gpio,spi $USER
 # log out/in or reboot for group changes to apply
 ```
 
-⸻
-
-🧪 Optional: system-wide service (root)
+## Optional: system-wide service (root)
 
 If you prefer a system service instead of user service, copy to `/etc/systemd/system/` and drop the `--user` bits in the commands:
 
