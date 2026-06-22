@@ -91,16 +91,17 @@ Launching: /home/tim/.../.venv/bin/python dash_weather.py
 ```
 
 ### 4) Common tweaks
-Change the rotate interval:
+#### Change the rotate interval
 Edit `.env` → `ROTATE_SECONDS=300`, then:
 
 `systemctl --user restart eink-rotator.service`
 
+#### Run a specific sequence
+`.env` → `DASH_CYCLE=weather,comic`
 
-	•	Run a specific sequence:
-	•	`.env` → `DASH_CYCLE=weather,comic`
-	•	If you move the project:
-	•	Update WorkingDirectory, EnvironmentFile, and ExecStart in the unit, then:
+#### If you move the project
+
+Update WorkingDirectory, EnvironmentFile, and ExecStart in the unit, then:
 
 ```
 systemctl --user daemon-reload
