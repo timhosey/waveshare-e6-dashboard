@@ -44,21 +44,54 @@ WEATHER_CACHE_TTL_MIN = int(os.environ.get("WEATHER_CACHE_TTL_MIN", "30"))
 CACHE_TTL = timedelta(minutes=WEATHER_CACHE_TTL_MIN)
 
 # ── Fonts ──────────────────────────────────────────────────────────────────────
+# Low-DPI e-ink dithers thin anti-aliased strokes into near-invisibility, so we
+# prefer a bold weight wherever one exists and fall back through progressively
+# lighter weights — and ultimately the default PIL font — if it doesn't.
 FONT_DIR = Path("fonts")
-try:
-    FONT_HEADER  = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 22)
-    FONT_TEMP    = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 64)
-    FONT_COND    = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 24)
-    FONT_VALUE   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 20)
-    FONT_LABEL   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 17)
-    FONT_DAY     = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 20)
-    FONT_FC_TEMP = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 18)
-    FONT_SMALL   = ImageFont.truetype(str(FONT_DIR / "MPLUSRounded1c-Regular.ttf"), 14)
-except Exception as e:
-    logging.warning("[dash_weather] font load failed (%s); falling back to default PIL font", e)
-    FONT_HEADER = FONT_TEMP = FONT_COND = FONT_VALUE = FONT_LABEL = \
-        FONT_DAY = FONT_FC_TEMP = FONT_SMALL = ImageFont.load_default()
+_BOLD_CHAIN = [
+    "MPLUSRounded1c-Bold.ttf",
+    "MPLUSRounded1c-ExtraBold.ttf",
+    "MPLUSRounded1c-Medium.ttf",
+    "MPLUSRounded1c-Regular.ttf",
+]
+
+def _load_font(size: int, chain: list[str] = _BOLD_CHAIN) -> ImageFont.FreeTypeFont:
+    for name in chain:
+        p = FONT_DIR / name
+        if p.exists():
+            try:
+                return ImageFont.truetype(str(p), size)
+            except Exception as e:
+                logging.warning("[dash_weather] failed to load %s: %s", name, e)
+    logging.warning("[dash_weather] no bundled font found in %s; using PIL default", chain)
+    return ImageFont.load_default()
+
+FONT_HEADER  = _load_font(22)
+FONT_TEMP    = _load_font(64)
+FONT_COND    = _load_font(24)
+FONT_VALUE   = _load_font(20)
+FONT_LABEL   = _load_font(18)
+FONT_DAY     = _load_font(20)
+FONT_FC_TEMP = _load_font(18)
+FONT_SMALL   = _load_font(16)
 logging.info("[dash_weather] fonts loaded")
+
+# Stroke width applied to small/medium text so glyphs stay solid under e-ink
+# dithering instead of fading at the anti-aliased edges. Skipped for FONT_TEMP,
+# which is already large enough that stroking would just blob the digits.
+_TEXT_STROKE = 1
+
+def dtext(draw: ImageDraw.ImageDraw, xy, text: str, font, fill, stroke: int = _TEXT_STROKE):
+    """draw.text with an outline stroke for legibility on low-DPI e-ink."""
+    if stroke:
+        draw.text(xy, text, font=font, fill=fill, stroke_width=stroke, stroke_fill=fill)
+    else:
+        draw.text(xy, text, font=font, fill=fill)
+
+def text_w(draw: ImageDraw.ImageDraw, text: str, font, stroke: int = _TEXT_STROKE) -> int:
+    """Width of text as it will actually render, including stroke."""
+    bbox = draw.textbbox((0, 0), text, font=font, stroke_width=stroke)
+    return bbox[2] - bbox[0]
 
 WEATHER_ICON_DIR = Path("img/weather")
 
@@ -181,9 +214,9 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     loc = tz_name.replace("_", " ").split("/")[-1] if tz_name else "Weather"
     date_str = now.strftime("%A, %b %d  •  %I:%M %p").lstrip("0")
 
-    draw.text((16, 10), loc, font=FONT_HEADER, fill=(50, 80, 165))
-    date_w = draw.textbbox((0, 0), date_str, font=FONT_LABEL)[2]
-    draw.text((WIDTH - date_w - 16, 12), date_str, font=FONT_LABEL, fill=(90, 110, 145))
+    dtext(draw, (16, 10), loc, FONT_HEADER, (50, 80, 165))
+    date_w = text_w(draw, date_str, FONT_LABEL)
+    dtext(draw, (WIDTH - date_w - 16, 12), date_str, FONT_LABEL, (90, 110, 145))
     draw.line([(0, 44), (WIDTH, 44)], fill=(180, 195, 215), width=2)
 
     # ── LEFT PANEL: icon + big temperature + condition ─────────────────────
@@ -199,19 +232,19 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
         draw.rounded_rectangle([ix, iy, ix + ICON_SZ, iy + ICON_SZ],
                                radius=12, outline=(180, 190, 215), width=2)
 
-    # Temperature to the right of the icon
+    # Temperature to the right of the icon (no stroke — already huge)
     temp_str = fmt(temp)
     tx = ix + ICON_SZ + 14
     ty = LP[1] + 10
-    draw.text((tx, ty), temp_str, font=FONT_TEMP, fill=(30, 75, 180))
+    dtext(draw, (tx, ty), temp_str, FONT_TEMP, (30, 75, 180), stroke=0)
 
     # Condition description below icon
     cond_y = iy + ICON_SZ + 10
-    draw.text((LP[0] + 14, cond_y), cond_desc or cond_main, font=FONT_COND, fill=(70, 55, 120))
+    dtext(draw, (LP[0] + 14, cond_y), cond_desc or cond_main, FONT_COND, (70, 55, 120))
 
     # Soft "updated" timestamp at bottom of panel
     upd = now.strftime("Updated %I:%M %p").replace(" 0", " ")
-    draw.text((LP[0] + 14, LP[3] - 22), upd, font=FONT_SMALL, fill=(160, 165, 180))
+    dtext(draw, (LP[0] + 14, LP[3] - 22), upd, FONT_SMALL, (160, 165, 180))
 
     # ── RIGHT PANEL: detail stats ─────────────────────────────────────────
     RP = (400, 50, 792, 270)
@@ -220,27 +253,27 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
     rx = RP[0] + 16          # left edge of text inside panel
     rr = RP[2] - 16          # right edge for value alignment
 
-    draw.text((rx, RP[1] + 10), "Today's Details", font=FONT_SMALL, fill=(110, 120, 150))
+    dtext(draw, (rx, RP[1] + 10), "Today's Details", FONT_SMALL, (110, 120, 150))
     draw.line([(RP[0] + 12, RP[1] + 32), (RP[2] - 12, RP[1] + 32)], fill=(190, 200, 218), width=1)
 
     def stat_row(y: int, label: str, value: str, val_color=(28, 38, 60)):
-        draw.text((rx, y), label, font=FONT_LABEL, fill=(105, 115, 140))
-        vw = draw.textbbox((0, 0), value, font=FONT_VALUE)[2]
-        draw.text((rr - vw, y - 1), value, font=FONT_VALUE, fill=val_color)
+        dtext(draw, (rx, y), label, FONT_LABEL, (105, 115, 140))
+        vw = text_w(draw, value, FONT_VALUE)
+        dtext(draw, (rr - vw, y - 1), value, FONT_VALUE, val_color)
 
     ROW_START = RP[1] + 42
     ROW_STEP  = 38
 
     # Today H/L — two right-aligned values side by side
-    draw.text((rx, ROW_START), "Today", font=FONT_LABEL, fill=(105, 115, 140))
+    dtext(draw, (rx, ROW_START), "Today", FONT_LABEL, (105, 115, 140))
     hi_s = f"↑ {fmt(today_hi)}"
     lo_s = f"↓ {fmt(today_lo)}"
-    hi_w = draw.textbbox((0, 0), hi_s, font=FONT_VALUE)[2]
-    lo_w = draw.textbbox((0, 0), lo_s, font=FONT_VALUE)[2]
+    hi_w = text_w(draw, hi_s, FONT_VALUE)
+    lo_w = text_w(draw, lo_s, FONT_VALUE)
     lo_x = rr - lo_w
     hi_x = lo_x - hi_w - 14
-    draw.text((hi_x, ROW_START - 1), hi_s, font=FONT_VALUE, fill=(210, 55, 35))
-    draw.text((lo_x, ROW_START - 1), lo_s, font=FONT_VALUE, fill=(40, 100, 200))
+    dtext(draw, (hi_x, ROW_START - 1), hi_s, FONT_VALUE, (210, 55, 35))
+    dtext(draw, (lo_x, ROW_START - 1), lo_s, FONT_VALUE, (40, 100, 200))
 
     stat_row(ROW_START + ROW_STEP,     "Feels Like",
              fmt(feels))
@@ -284,13 +317,13 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
 
         # Day name (centered)
         day_name = dt.strftime("%a")
-        dnw = draw.textbbox((0, 0), day_name, font=FONT_DAY)[2]
-        draw.text((cx_mid - dnw // 2, FC_Y1 + 8), day_name, font=FONT_DAY, fill=(65, 52, 115))
+        dnw = text_w(draw, day_name, FONT_DAY)
+        dtext(draw, (cx_mid - dnw // 2, FC_Y1 + 8), day_name, FONT_DAY, (65, 52, 115))
 
         # Short date (centered)
         date_lbl = dt.strftime("%b %d")
-        dlw = draw.textbbox((0, 0), date_lbl, font=FONT_SMALL)[2]
-        draw.text((cx_mid - dlw // 2, FC_Y1 + 32), date_lbl, font=FONT_SMALL, fill=(115, 125, 150))
+        dlw = text_w(draw, date_lbl, FONT_SMALL)
+        dtext(draw, (cx_mid - dlw // 2, FC_Y1 + 32), date_lbl, FONT_SMALL, (115, 125, 150))
 
         # Icon (centered)
         ic = load_icon(dk, 56)
@@ -305,17 +338,17 @@ def compose_weather_dashboard(data: dict) -> Image.Image:
         tmin = day.get("temp", {}).get("min")
         hi_s = fmt(tmax)
         lo_s = fmt(tmin)
-        hiw = draw.textbbox((0, 0), hi_s, font=FONT_FC_TEMP)[2]
-        low = draw.textbbox((0, 0), lo_s, font=FONT_FC_TEMP)[2]
-        draw.text((cx_mid - hiw // 2, FC_Y1 + 118), hi_s, font=FONT_FC_TEMP, fill=(210, 55, 35))
-        draw.text((cx_mid - low  // 2, FC_Y1 + 142), lo_s, font=FONT_FC_TEMP, fill=(40, 100, 200))
+        hiw = text_w(draw, hi_s, FONT_FC_TEMP)
+        low = text_w(draw, lo_s, FONT_FC_TEMP)
+        dtext(draw, (cx_mid - hiw // 2, FC_Y1 + 118), hi_s, FONT_FC_TEMP, (210, 55, 35))
+        dtext(draw, (cx_mid - low  // 2, FC_Y1 + 142), lo_s, FONT_FC_TEMP, (40, 100, 200))
 
         # Condition label (centered, truncated)
         cond_lbl = (dw.get("description") or dw.get("main", "")).title()
         if cond_lbl:
             cond_lbl = cond_lbl[:18]
-            clw = draw.textbbox((0, 0), cond_lbl, font=FONT_SMALL)[2]
-            draw.text((cx_mid - clw // 2, FC_Y1 + 168), cond_lbl, font=FONT_SMALL, fill=(88, 95, 118))
+            clw = text_w(draw, cond_lbl, FONT_SMALL)
+            dtext(draw, (cx_mid - clw // 2, FC_Y1 + 168), cond_lbl, FONT_SMALL, (88, 95, 118))
 
     return canvas
 
